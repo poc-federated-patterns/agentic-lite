@@ -1,0 +1,5 @@
+atlassian-python-api==3.41.6
+PyYAML==6.0.2
+rich==13.9.4
+
+

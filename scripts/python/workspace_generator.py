@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from rich.console import Console
 
-from .util import features_root, repos_root, read_yaml, repo_root
+try:
+    from .util import features_root, repos_root, read_yaml, repo_root
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from util import features_root, repos_root, read_yaml, repo_root
 
 console = Console()
 

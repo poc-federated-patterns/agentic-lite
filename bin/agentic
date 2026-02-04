@@ -2,6 +2,24 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-python3 "$REPO_ROOT/scripts/python/cli.py" "$@"
+PYTHON_SCRIPTS="${REPO_ROOT}/scripts/python"
+
+if [[ -f "${REPO_ROOT}/.venv/bin/activate" ]]; then
+  source "${REPO_ROOT}/.venv/bin/activate"
+fi
+
+if [[ -f "${REPO_ROOT}/config/credentials.env" ]]; then
+  set -a
+  source "${REPO_ROOT}/config/credentials.env"
+  set +a
+fi
+
+cd "${REPO_ROOT}"
+python3 -c "
+import sys
+sys.path.insert(0, '${PYTHON_SCRIPTS}')
+from cli import main
+main()
+" "$@"
 
 

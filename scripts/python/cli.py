@@ -5,23 +5,36 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
 from rich.console import Console
 
-from .pr_context_builder import build_context
-from .sources.jira import JiraSource
-from .util import (
-    features_root,
-    load_env_file,
-    read_yaml,
-    repo_root,
-    repos_root,
-    write_yaml,
-)
-from .workspace_generator import generate_workspace
+try:
+    from .pr_context_builder import build_context
+    from .util import (
+        features_root,
+        load_env_file,
+        read_yaml,
+        repo_root,
+        repos_root,
+        write_yaml,
+    )
+    from .workspace_generator import generate_workspace
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from pr_context_builder import build_context
+    from util import (
+        features_root,
+        load_env_file,
+        read_yaml,
+        repo_root,
+        repos_root,
+        write_yaml,
+    )
+    from workspace_generator import generate_workspace
 
 console = Console()
 
@@ -30,8 +43,17 @@ def _load_credentials() -> None:
     load_env_file(repo_root() / "config" / "credentials.env")
 
 
-def _jira_source() -> JiraSource:
+def _jira_source():
     _load_credentials()
+    try:
+        from .sources.jira import JiraSource
+    except ImportError:
+        try:
+            from sources.jira import JiraSource
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Missing Python dependencies. Run: pip install -r scripts/python/requirements.txt"
+            ) from exc
     return JiraSource(
         base_url=os.getenv("ATLASSIAN_BASE_URL", ""),
         email=os.getenv("ATLASSIAN_EMAIL", ""),

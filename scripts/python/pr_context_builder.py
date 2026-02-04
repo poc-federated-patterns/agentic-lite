@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from .util import features_root, read_yaml
+try:
+    from .util import features_root, read_yaml
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from util import features_root, read_yaml
 
 
 def build_context(feature_key: str, task_key: str) -> Path:

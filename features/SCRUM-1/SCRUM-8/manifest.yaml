@@ -1,0 +1,31 @@
+acceptance_criteria: '*
+
+  ** The UI allows users to upload a {{.csv}} or {{.qif}} file.
+
+  ** A "Column Mapper" screen appears if the headers are unrecognized, allowing the
+  user to point "Amount," "Date," and "Description" to the right columns.
+
+  ** The system saves these "Bank Profiles" so future uploads from the same bank are
+  automatic.'
+assignee: null
+description: '* *Design Decision:* How do we handle different bank formats (e.g.,
+  Chase vs. Monzo)? *Decision:* Implement a "Mapper" pattern where users can map their
+  CSV columns (e.g., "Transaction Date" or "Value") to our internal schema.
+
+  * *Acceptance Criteria:*
+
+  ** The UI allows users to upload a {{.csv}} or {{.qif}} file.
+
+  ** A "Column Mapper" screen appears if the headers are unrecognized, allowing the
+  user to point "Amount," "Date," and "Description" to the right columns.
+
+  ** The system saves these "Bank Profiles" so future uploads from the same bank are
+  automatic.'
+item_type: task
+labels: []
+parent_key: SCRUM-1
+source: jira
+source_url: https://datagero.atlassian.net/browse/SCRUM-8
+status: To Do
+task_key: SCRUM-8
+title: Mapping Logic for CSV Parsing

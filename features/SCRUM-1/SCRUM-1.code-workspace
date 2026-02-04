@@ -1,0 +1,54 @@
+{
+  "folders": [
+    {
+      "name": "Assistant",
+      "path": "/Users/matias.vizcaino/Documents/datagero_repos/agentic-lite"
+    },
+    {
+      "name": "foo",
+      "path": "/Users/matias.vizcaino/Documents/datagero_repos/repos/foo"
+    },
+    {
+      "name": "bar",
+      "path": "/Users/matias.vizcaino/Documents/datagero_repos/repos/bar"
+    }
+  ],
+  "settings": {
+    "git.autofetch": true,
+    "git.confirmSync": false,
+    "git.enableSmartCommit": true,
+    "githubPullRequests.pullRequestDescriptionGeneration": "copilot",
+    "terminal.integrated.defaultProfile.osx": "zsh",
+    "terminal.integrated.defaultProfile.linux": "bash"
+  },
+  "extensions": {
+    "recommendations": [
+      "github.copilot",
+      "github.copilot-chat",
+      "github.vscode-pull-request-github",
+      "atlassian.atlascode",
+      "redhat.vscode-yaml"
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Agentic: Setup Repos",
+        "type": "shell",
+        "command": "bin/agentic workspace-setup SCRUM-1",
+        "options": {
+          "cwd": "/Users/matias.vizcaino/Documents/datagero_repos/agentic-lite"
+        },
+        "problemMatcher": [],
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        },
+        "runOptions": {
+          "runOn": "folderOpen"
+        }
+      }
+    ]
+  }
+}

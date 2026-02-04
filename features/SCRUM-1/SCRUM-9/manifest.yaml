@@ -1,0 +1,27 @@
+acceptance_criteria: '*
+
+  ** Before saving to the database, the system checks for existing hashes within a
+  3-day window (to account for bank processing delays).
+
+  ** The UI shows a summary post-upload: "50 transactions imported, 12 duplicates
+  skipped."'
+assignee: null
+description: '* *Design Decision:* How do we prevent double-counting if a user uploads
+  overlapping files? *Decision:* Create a "Transaction Hash" using a combination of
+  {{Date + Amount + Description}}.
+
+  * *Acceptance Criteria:*
+
+  ** Before saving to the database, the system checks for existing hashes within a
+  3-day window (to account for bank processing delays).
+
+  ** The UI shows a summary post-upload: "50 transactions imported, 12 duplicates
+  skipped."'
+item_type: task
+labels: []
+parent_key: SCRUM-1
+source: jira
+source_url: https://datagero.atlassian.net/browse/SCRUM-9
+status: To Do
+task_key: SCRUM-9
+title: Intelligent Deduplication Logic

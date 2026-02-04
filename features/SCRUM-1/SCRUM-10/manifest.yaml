@@ -1,0 +1,25 @@
+acceptance_criteria: '*
+
+  ** The API accepts a batch of transactions and returns them with suggested categories.
+
+  ** The UI allows the user to "Select All" and apply a category to multiple items
+  simultaneously before final confirmation.'
+assignee: null
+description: '* *Design Decision:* How do we handle 100 transactions at once? *Decision:*
+  Implement "Regex-based Rules." If a description contains "Uber," "Lyft," or "Train,"
+  bulk-assign it to "Transport."
+
+  * *Acceptance Criteria:*
+
+  ** The API accepts a batch of transactions and returns them with suggested categories.
+
+  ** The UI allows the user to "Select All" and apply a category to multiple items
+  simultaneously before final confirmation.'
+item_type: task
+labels: []
+parent_key: SCRUM-1
+source: jira
+source_url: https://datagero.atlassian.net/browse/SCRUM-10
+status: To Do
+task_key: SCRUM-10
+title: Bulk Categorization Engine

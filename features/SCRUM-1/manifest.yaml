@@ -1,0 +1,13 @@
+description: '*The Goal:* This feature focuses on a "Data Pipeline" that can ingest,
+  clean, and deduplicate transactions from various bank formats.'
+feature_key: SCRUM-1
+item_type: feature
+parent_key: SCRUM-7
+source: jira
+source_url: https://datagero.atlassian.net/browse/SCRUM-1
+status: In Progress
+tasks:
+- SCRUM-8
+- SCRUM-9
+- SCRUM-10
+title: Universal Transaction Importer (CSV & Bank Integration)

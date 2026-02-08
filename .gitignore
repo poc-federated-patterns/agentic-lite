@@ -1,3 +1,5 @@
 *credentials.env
 .venv
 __pycache__/
+presentations
+.DS_Store

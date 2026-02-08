@@ -47,6 +47,42 @@ def generate_workspace(feature_key: str) -> Path:
         }
     ]
 
+    # Auto-open a terminal for the Assistant root (activate venv if present)
+    tasks.append(
+        {
+            "label": "Term: Assistant",
+            "type": "shell",
+            "command": "zsh",
+            "args": [
+                "-lc",
+                "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; exec zsh -i",
+            ],
+            "options": {"cwd": str(repo_root().absolute())},
+            "problemMatcher": [],
+            "presentation": {"reveal": "silent", "panel": "dedicated"},
+            "runOptions": {"runOn": "folderOpen"},
+        }
+    )
+
+    # Auto-open a terminal per repo folder (activate venv if present)
+    for repo_name in repo_names:
+        repo_path = repos_root() / repo_name
+        tasks.append(
+            {
+                "label": f"Term: {repo_name}",
+                "type": "shell",
+                "command": "zsh",
+                "args": [
+                    "-lc",
+                    "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; exec zsh -i",
+                ],
+                "options": {"cwd": str(repo_path.absolute())},
+                "problemMatcher": [],
+                "presentation": {"reveal": "silent", "panel": "dedicated"},
+                "runOptions": {"runOn": "folderOpen"},
+            }
+        )
+
     workspace = {
         "folders": folders,
         "settings": {

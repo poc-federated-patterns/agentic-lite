@@ -87,6 +87,42 @@ def _git(*args: str, cwd: Path | None = None) -> str:
     return result.stdout.strip()
 
 
+def _default_branch(cwd: Path) -> str:
+    try:
+        ref = _git("symbolic-ref", "--short", "refs/remotes/origin/HEAD", cwd=cwd)
+        # e.g. origin/main -> main
+        return ref.split("/", 1)[1]
+    except Exception:
+        # Fallbacks
+        for candidate in ("main", "master", "develop"):
+            try:
+                _git("rev-parse", f"origin/{candidate}", cwd=cwd)
+                return candidate
+            except Exception:
+                continue
+        return "main"
+
+
+def _local_branches(cwd: Path) -> list[str]:
+    try:
+        out = _git(
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads",
+            cwd=cwd,
+        )
+        return [b for b in out.splitlines() if b.strip()]
+    except Exception:
+        return []
+
+
+def _head_branch(cwd: Path) -> str:
+    try:
+        return _git("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd)
+    except Exception:
+        return ""
+
+
 def _gh(*args: str, cwd: Path | None = None) -> str:
     result = subprocess.run(
         ["gh", *args],
@@ -276,25 +312,98 @@ def _resolve_repos_for_task(feature_key: str, task_key: str, repos: Iterable[str
     return feature_config.get("repos", [])
 
 
-def cmd_diff(args: argparse.Namespace) -> None:
-    repos = _resolve_repos_for_task(args.feature, args.task, args.repo)
-    if not repos:
-        console.print("[yellow]No repos configured for diff.[/yellow]")
-        return
+def _detect_repos_for_task_by_branch_prefix(task_key: str) -> list[str]:
+    names: list[str] = []
+    root = repos_root()
+    if not root.exists():
+        return names
+    for child in root.iterdir():
+        if not child.is_dir():
+            continue
+        if not (child / ".git").exists():
+            continue
+        branches = _local_branches(child)
+        if any(b.startswith(task_key) for b in branches):
+            names.append(child.name)
+        else:
+            head = _head_branch(child)
+            if head.startswith(task_key):
+                names.append(child.name)
+    return sorted(names)
 
-    task_dir = _task_dir(args.feature, args.task)
+
+def _find_feature_for_task(task_key: str) -> str | None:
+    base = features_root()
+    if not base.exists():
+        return None
+    for feature_dir in base.iterdir():
+        if not feature_dir.is_dir():
+            continue
+        if (feature_dir / task_key).exists():
+            return feature_dir.name
+    return None
+
+
+def cmd_diff(args: argparse.Namespace) -> None:
+    # Support calling with either: diff FEATURE TASK  or diff TASK
+    if getattr(args, "task", None):
+        feature_key = args.feature_or_task
+        task_key = args.task
+    else:
+        task_key = args.feature_or_task
+        feature_key = _find_feature_for_task(task_key) or task_key.split("-")[0]
+
+    # Resolve repos from args/config; else auto-detect from local repos with matching branch prefix
+    repos = []
+    try:
+        repos = _resolve_repos_for_task(feature_key, task_key, getattr(args, "repo", []))
+    except Exception:
+        repos = []
+
+    task_dir = _task_dir(feature_key, task_key)
     diffs_dir = task_dir / "diffs"
     _ensure_dir(diffs_dir)
 
-    for repo in repos:
-        repo_name = repo.split("/")[-1]
+    repo_names: list[str]
+    if repos:
+        repo_names = [r.split("/")[-1] for r in repos]
+    else:
+        repo_names = _detect_repos_for_task_by_branch_prefix(task_key)
+        if not repo_names:
+            console.print("[yellow]No repos found with a matching branch prefix.[/yellow]")
+            return
+
+    for repo_name in repo_names:
         repo_path = repos_root() / repo_name
         if not repo_path.exists():
             console.print(f"[yellow]Repo not found: {repo_path}[/yellow]")
             continue
-        diff = _git("diff", cwd=repo_path)
+
+        base = _default_branch(repo_path)
+        branches = _local_branches(repo_path)
+        branch = next((b for b in branches if b.startswith(task_key)), None) or _head_branch(repo_path)
+
+        if not branch or not (branch.startswith(task_key)):
+            console.print(f"[dim]{repo_name}: no branch matching '{task_key}'[/dim]")
+            continue
+
+        # Prefer origin/base if available
+        base_ref = f"origin/{base}"
+        try:
+            _git("rev-parse", base_ref, cwd=repo_path)
+        except Exception:
+            base_ref = base
+
+        try:
+            diff = _git("diff", f"{base_ref}...{branch}", cwd=repo_path)
+        except Exception as exc:
+            console.print(f"[yellow]{repo_name}: diff error: {exc}[/yellow]")
+            continue
+
         output = diffs_dir / f"{repo_name}.patch"
-        output.write_text(diff)
+        header = f"# Diff: {repo_name} ({base}...{branch})\n\n"
+        content = header + (diff if diff.strip() else "# No differences found.\n")
+        output.write_text(content)
         console.print(f"[green]Saved diff:[/green] {output}")
 
 
@@ -437,8 +546,9 @@ def main() -> None:
     log_cmd.set_defaults(func=cmd_log)
 
     diff_cmd = sub.add_parser("diff")
-    diff_cmd.add_argument("feature")
-    diff_cmd.add_argument("task")
+    # Allow: diff FEATURE TASK  or diff TASK (feature optional)
+    diff_cmd.add_argument("feature_or_task")
+    diff_cmd.add_argument("task", nargs="?")
     diff_cmd.add_argument("--repo", action="append", default=[])
     diff_cmd.set_defaults(func=cmd_diff)
 

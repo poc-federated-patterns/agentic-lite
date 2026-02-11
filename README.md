@@ -4,7 +4,28 @@ Lightweight workspace template to operationalize shared mental models for a team
 This repo provides a thin-slice workflow: fetch a feature from JIRA, choose repos,
 generate a VS Code workspace, capture context, and prepare PRs.
 
-## Quick Start
+## Quick Start (1 minute)
+
+If you are in Codespaces, this should already be configured by the devcontainer.
+If startup messages were missed, follow these steps:
+
+```bash
+# 1) Validate credentials
+cp -n config/credentials.env.example config/credentials.env
+# then edit config/credentials.env
+
+# 2) Initialize feature + child tasks
+bin/agentic init <FEATURE-ID> -c
+
+# 3) Set repos for the feature
+bin/agentic repos <FEATURE-ID>
+
+# 4) Create and open workspace
+bin/agentic workspace <FEATURE-ID>
+code features/<FEATURE-ID>/<FEATURE-ID>.code-workspace
+```
+
+## Other Start
 
 ### 1) Setup
 

@@ -1,13 +1,25 @@
 {
-  "name": "agentic-lite",
-  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/devcontainers-extra/features/ripgrep:1": {},
+    "ghcr.io/devcontainers-extra/features/fd:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers-contrib/features/ruff:1": {},
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers-extra/features/aws-cdk:2": {},
+    "ghcr.io/devcontainers-extra/features/uv:1": {},
+    "ghcr.io/devcontainers/features/git-lfs:1": {},
+    "ghcr.io/devcontainers-extra/features/actionlint:1": {}
   },
-  "postCreateCommand": "pip install -r scripts/python/requirements.txt",
+  "postCreateCommand": ".devcontainer/create-command.sh",
+  "postAttachCommand": ".devcontainer/on-attach.sh",
   "customizations": {
     "vscode": {
       "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-vsliveshare.vsliveshare",
         "github.copilot",
         "github.copilot-chat",
         "github.vscode-pull-request-github",

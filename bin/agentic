@@ -14,6 +14,14 @@ if [[ -f "${REPO_ROOT}/config/credentials.env" ]]; then
   set +a
 fi
 
+# Normalize GitHub token env var naming for different tools.
+if [[ -n "${GH_TOKEN:-}" && -z "${GITHUB_TOKEN:-}" ]]; then
+  export GITHUB_TOKEN="${GH_TOKEN}"
+fi
+if [[ -n "${GITHUB_TOKEN:-}" && -z "${GH_TOKEN:-}" ]]; then
+  export GH_TOKEN="${GITHUB_TOKEN}"
+fi
+
 cd "${REPO_ROOT}"
 python3 -c "
 import sys

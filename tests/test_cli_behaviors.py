@@ -3,6 +3,8 @@ from argparse import Namespace
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
+import os
+import subprocess
 
 import yaml
 
@@ -91,5 +93,88 @@ class TestCliBehaviors(TestCase):
     def test_resolve_feature_arg_uses_active_feature(self):
         with patch.object(cli, "_get_active_feature", return_value="FEAT-22"):
             self.assertEqual(cli._resolve_feature_arg(None), "FEAT-22")
+
+    def test_workspace_runs_setup_by_default(self):
+        args = Namespace(feature="FEAT-1", no_clone=False)
+        with patch.object(cli, "_save_active_feature"), patch.object(
+            cli, "cmd_workspace_setup"
+        ) as setup_call, patch.object(cli, "generate_workspace", return_value=Path("/tmp/w.code-workspace")):
+            cli.cmd_workspace(args)
+        setup_call.assert_called_once()
+
+    def test_workspace_setup_recreates_non_git_folder(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            features = root / "features"
+            repos = root / "repos"
+            feature_dir = features / "FEAT-1"
+            feature_dir.mkdir(parents=True)
+            (feature_dir / "config.yaml").write_text(yaml.safe_dump({"repos": ["org/foo"]}))
+            broken_repo = repos / "foo"
+            broken_repo.mkdir(parents=True)
+            (broken_repo / "file.txt").write_text("partial")
+
+            args = Namespace(feature=None)
+            with patch.object(cli, "features_root", return_value=features), patch.object(
+                cli, "repos_root", return_value=repos
+            ), patch.object(cli, "_resolve_feature_arg", return_value="FEAT-1"), patch.object(
+                cli, "_clone_repo", return_value="gh"
+            ) as clone_call:
+                cli.cmd_workspace_setup(args)
+            clone_call.assert_called_once()
+
+    def test_normalize_github_token_env(self):
+        old_gh = os.environ.get("GH_TOKEN")
+        old_github = os.environ.get("GITHUB_TOKEN")
+        try:
+            os.environ.pop("GH_TOKEN", None)
+            os.environ["GITHUB_TOKEN"] = "abc"
+            cli._normalize_github_token_env()
+            self.assertEqual(os.environ.get("GH_TOKEN"), "abc")
+        finally:
+            if old_gh is None:
+                os.environ.pop("GH_TOKEN", None)
+            else:
+                os.environ["GH_TOKEN"] = old_gh
+            if old_github is None:
+                os.environ.pop("GITHUB_TOKEN", None)
+            else:
+                os.environ["GITHUB_TOKEN"] = old_github
+
+    def test_clone_repo_prefers_gh_for_org_repo(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_path = Path(tmp_dir) / "foo"
+            with patch.object(cli, "_gh", return_value=""), patch.object(cli, "_git") as git_call:
+                method = cli._clone_repo("org/foo", repo_path)
+            self.assertEqual(method, "gh")
+            git_call.assert_not_called()
+
+    def test_clone_repo_falls_back_to_ssh_when_gh_auth_unavailable(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_path = Path(tmp_dir) / "foo"
+            with patch.object(cli, "_gh", side_effect=RuntimeError("no gh auth")), patch.object(
+                cli, "_git", return_value=""
+            ) as git_call:
+                method = cli._clone_repo("org/foo", repo_path)
+            self.assertEqual(method, "ssh")
+            self.assertTrue(git_call.called)
+
+    def test_git_timeout_is_raised_as_runtime_error(self):
+        with patch("scripts.python.cli.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["git", "clone"], timeout=1)):
+            with self.assertRaises(RuntimeError) as ctx:
+                cli._git("clone", "x")
+        self.assertIn("timed out", str(ctx.exception))
+
+    def test_clone_repo_returns_existing_when_git_dir_present_after_gh_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_path = Path(tmp_dir) / "foo"
+            (repo_path / ".git").mkdir(parents=True)
+            with patch.object(cli, "_gh", side_effect=RuntimeError("gh timeout")) as gh_call, patch.object(
+                cli, "_git", return_value="ok"
+            ) as git_call:
+                method = cli._clone_repo("org/foo", repo_path)
+            self.assertEqual(method, "existing")
+            gh_call.assert_not_called()
+            self.assertGreaterEqual(git_call.call_count, 2)
 
 

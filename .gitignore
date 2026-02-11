@@ -4,3 +4,4 @@ __pycache__/
 presentations
 .DS_Store
 features/
+.agentic/

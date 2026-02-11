@@ -26,43 +26,58 @@ def generate_workspace(feature_key: str) -> Path:
     repo_list = config.get("repos", [])
     repo_names = [r.split("/")[-1] for r in repo_list]
     credentials_path = repo_root() / "config" / "credentials.env"
+    token_normalize = (
+        'if [ -n "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ]; then export GITHUB_TOKEN="$GH_TOKEN"; fi; '
+        'if [ -n "${GITHUB_TOKEN:-}" ] && [ -z "${GH_TOKEN:-}" ]; then export GH_TOKEN="$GITHUB_TOKEN"; fi; '
+    )
 
     folders = [
-        {"name": "Assistant", "path": str(repo_root().absolute())},
+        {"name": "agentic-lite", "path": str(repo_root().absolute())},
     ]
 
     for repo_name in repo_names:
         repo_path = repos_root() / repo_name
         folders.append({"name": repo_name, "path": str(repo_path.absolute())})
 
-    setup_cmd = f"bin/agentic workspace-setup {feature_key}"
+    setup_cmd = f"bin/agentic set-workspace-setup {feature_key}"
     tasks = [
         {
-            "label": "Agentic: Setup Repos",
+            "label": "agentic-lite: setup repos (manual)",
             "type": "shell",
             "command": setup_cmd,
             "options": {"cwd": str(repo_root().absolute())},
             "problemMatcher": [],
             "presentation": {"reveal": "always", "panel": "new"},
-            "runOptions": {"runOn": "folderOpen"},
         }
     ]
 
-    # Auto-open a terminal for the Assistant root (load creds + activate venv)
+    # Auto-open a terminal for agentic-lite root (load creds + activate venv)
     tasks.append(
         {
-            "label": "Term: Assistant",
+            "label": "Term: agentic-lite",
             "type": "shell",
             "command": "zsh",
             "args": [
                 "-lc",
-                "if [ -f config/credentials.env ]; then set -a; source config/credentials.env; set +a; fi; "
-                "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; exec zsh -i",
+                (
+                    "if [ -f config/credentials.env ]; then set -a; source config/credentials.env; set +a; fi; "
+                    + token_normalize
+                    + "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; "
+                    + f'echo "agentic-lite workspace ready for {feature_key}"; '
+                    + 'echo "Next:"; '
+                    + 'echo "  1) Create task branches in repo terminals (prefix with TASK-ID)"; '
+                    + 'echo "  2) Capture diffs: bin/agentic diff <TASK-ID>"; '
+                    + 'echo "  3) Build PR: bin/agentic pr context <TASK-ID> && bin/agentic pr build <TASK-ID>"; '
+                    + 'echo "  4) Configure repos: bin/agentic set-task-repos <TASK-ID>"; '
+                    + 'echo "  5) Submit PRs: bin/agentic pr submit <TASK-ID>"; '
+                    + "exec zsh -i"
+                ),
             ],
             "options": {"cwd": str(repo_root().absolute())},
             "problemMatcher": [],
             "presentation": {"reveal": "silent", "panel": "dedicated"},
             "runOptions": {"runOn": "folderOpen"},
+            "icon": {"id": "hubot"},
         }
     )
 
@@ -76,17 +91,21 @@ def generate_workspace(feature_key: str) -> Path:
                 "command": "zsh",
                 "args": [
                     "-lc",
-                    f'if [ -d "{repo_path}" ]; then cd "{repo_path}"; '
-                    f'if [ -f "{credentials_path}" ]; then set -a; source "{credentials_path}"; set +a; fi; '
-                    'if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; '
-                    "else "
-                    f'echo "Repo not cloned yet: {repo_name}. Run: bin/agentic workspace-setup {feature_key}"; '
-                    "fi; exec zsh -i",
+                    (
+                        f'if [ -d "{repo_path}" ]; then cd "{repo_path}"; '
+                        f'if [ -f "{credentials_path}" ]; then set -a; source "{credentials_path}"; set +a; fi; '
+                        + token_normalize
+                        + 'if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; '
+                        + "else "
+                        + f'echo "Repo not cloned yet: {repo_name}. Run: bin/agentic set-workspace-setup {feature_key}"; '
+                        + "fi; exec zsh -i"
+                    ),
                 ],
                 "options": {"cwd": str(repo_root().absolute())},
                 "problemMatcher": [],
                 "presentation": {"reveal": "silent", "panel": "dedicated"},
                 "runOptions": {"runOn": "folderOpen"},
+                "icon": {"id": "package"},
             }
         )
 

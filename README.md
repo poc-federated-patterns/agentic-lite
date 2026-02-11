@@ -6,92 +6,55 @@ generate a VS Code workspace, capture context, and prepare PRs.
 
 ## Quick Start (1 minute)
 
-If you are in Codespaces, this should already be configured by the devcontainer.
-If startup messages were missed, follow these steps:
+If you are in Codespaces, setup should already be done by the devcontainer.
+If startup messages were missed, run:
 
 ```bash
-# 1) Validate credentials
-cp -n config/credentials.env.example config/credentials.env
-# then edit config/credentials.env
-
-# 2) Initialize from a feature key (children fetched by default)
+# 1) Validate credentials (or edit existing file)
+cp config/credentials.env.example config/credentials.env
+# 2) Initialize feature (child tasks fetched by default)
 bin/agentic init <FEATURE-ID>
 
-# 3) Set repos for the feature
-bin/agentic repos <FEATURE-ID>
+# 3) Set feature repos (active feature is used)
+bin/agentic set-repos
 
-# 4) Create and open workspace
-bin/agentic workspace <FEATURE-ID>
-code features/<FEATURE-ID>/<FEATURE-ID>.code-workspace
+# 4) Create/open workspace
+bin/agentic set-workspace
 ```
 
-## Other Start
+Flow rules:
+- `init` is feature-only; epic/task IDs are rejected in agentic-lite.
+- Active feature context is saved after `init`, so `set-repos` and `set-workspace` need no feature ID.
+- Use `--no-children` if you need to skip child task fetch.
 
-### 1) Setup
+## Workflow Diagram
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r scripts/python/requirements.txt
-
-cp config/credentials.env.example config/credentials.env
-# edit config/credentials.env with your JIRA credentials
+```mermaid
+flowchart TD
+  initFeature[InitFeature] --> setRepos[SetRepos]
+  setRepos --> setWorkspace[SetWorkspace]
+  setWorkspace --> openWorkspace[OpenWorkspace]
+  openWorkspace --> taskWork[TaskWorkBranches]
+  taskWork --> captureDiffs[DiffTask]
+  taskWork --> addContext[LogTaskContext]
+  captureDiffs --> buildContext[PRContext]
+  addContext --> buildContext
+  buildContext --> buildPR[PRBuild]
+  buildPR --> taskRepos[SetTaskRepos]
+  taskRepos --> submitPRs[PRSubmit]
 ```
 
-### 2) Initialize a Feature
+## Core Commands
 
-```bash
-bin/agentic init FEAT-123
-```
-
-`init` is intentionally strict in agentic-lite:
-- Only **feature-level** keys are supported.
-- Epic keys and individual task keys are rejected to keep the flow simple.
-- Child tasks are fetched by default. Use `--no-children` if needed.
-
-Creates:
-
-```
-features/FEAT-123/
-├── manifest.yaml
-├── config.yaml
-└── TASK-456/
-    ├── manifest.yaml
-    ├── config.yaml
-    ├── diffs/
-    ├── pr/
-    └── research-notes/
-```
-
-### 3) Configure Repos
-
-```bash
-bin/agentic repos
-```
-
-### 4) Generate Workspace
-
-```bash
-bin/agentic workspace
-code features/FEAT-123/FEAT-123.code-workspace
-```
-
-### 5) Capture Context + Build PR
-
-```bash
-# Generate diffs for all repos with a branch starting with TASK-456
-bin/agentic diff TASK-456
-
-# Or scope explicitly (backwards compatible)
-bin/agentic diff FEAT-123 TASK-456 --repo org/service-a --repo org/service-b
-
-# Task-only variants (feature inferred from local manifests)
-bin/agentic log TASK-456
-bin/agentic pr context TASK-456
-bin/agentic pr build TASK-456
-bin/agentic task-repos TASK-456
-bin/agentic pr submit TASK-456
-```
+- `bin/agentic init <FEATURE-ID>`: initialize a feature + child tasks
+- `bin/agentic set-repos`: configure repos for active feature
+- `bin/agentic set-workspace`: clone missing repos + generate `<FEATURE>.code-workspace`
+- `bin/agentic diff <TASK-ID>`: capture diffs for repos linked to that task
+- `bin/agentic log <TASK-ID>`: append context in `research-notes/gained-context.md`
+- `bin/agentic pr context <TASK-ID>`: build structured context bundle
+- `bin/agentic pr build <TASK-ID>`: render PR description markdown
+- `bin/agentic set-task-repos <TASK-ID>`: choose main/supporting repos
+- `bin/agentic pr submit <TASK-ID>`: create main + supporting PRs
 
 ## Using Skills
 
@@ -122,11 +85,21 @@ ATLASSIAN_EMAIL=you@example.com
 ATLASSIAN_API_TOKEN=your_token
 ```
 
+## Setup (manual, non-Codespaces)
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r scripts/python/requirements.txt
+cp config/credentials.env.example config/credentials.env
+```
+
 ## Notes
 
 - Repos are cloned into a sibling `../repos` folder (relative to this repo).
 - Branching for code repos is manual. Branches should be prefixed with the task ID.
 - The PR template is in `.github/PULL_REQUEST_TEMPLATE.md`.
-- The generated workspace auto-opens one terminal for the assistant and one per repo; each loads credentials and activates `.venv` if present.
+- The generated workspace auto-opens one terminal for `agentic-lite` and one per repo; each loads credentials and activates `.venv` if present.
+- Repo setup is run during `set-workspace` (not automatically on workspace open) to avoid non-interactive auth hangs.
 
 

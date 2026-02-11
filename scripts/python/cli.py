@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -133,14 +134,22 @@ def _ensure_dir(path: Path) -> None:
 
 
 def _git(*args: str, cwd: Path | None = None) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=str(cwd) if cwd else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        check=False,
-    )
+    env = os.environ.copy()
+    env.setdefault("GIT_TERMINAL_PROMPT", "0")
+    env.setdefault("GCM_INTERACTIVE", "never")
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=str(cwd) if cwd else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            timeout=90,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"git command timed out: {' '.join(exc.cmd)}") from exc
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip())
     return result.stdout.strip()
@@ -183,17 +192,138 @@ def _head_branch(cwd: Path) -> str:
 
 
 def _gh(*args: str, cwd: Path | None = None) -> str:
-    result = subprocess.run(
-        ["gh", *args],
-        cwd=str(cwd) if cwd else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        check=False,
-    )
+    env = os.environ.copy()
+    env.setdefault("GH_PROMPT_DISABLED", "1")
+    try:
+        result = subprocess.run(
+            ["gh", *args],
+            cwd=str(cwd) if cwd else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            timeout=30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"gh command timed out: {' '.join(exc.cmd)}") from exc
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip())
     return result.stdout.strip()
+
+
+def _normalize_github_token_env() -> None:
+    if os.getenv("GH_TOKEN") and not os.getenv("GITHUB_TOKEN"):
+        os.environ["GITHUB_TOKEN"] = os.environ["GH_TOKEN"]
+    if os.getenv("GITHUB_TOKEN") and not os.getenv("GH_TOKEN"):
+        os.environ["GH_TOKEN"] = os.environ["GITHUB_TOKEN"]
+
+
+def _clone_repo(repo: str, repo_path: Path) -> str:
+    """Clone repository using robust auth fallbacks.
+
+    Order:
+    1) gh repo clone (uses gh auth/session)
+    2) git clone via SSH (git@github.com:org/repo.git)
+    3) git clone via HTTPS with optional GH token header
+    """
+    _normalize_github_token_env()
+    attempts: list[str] = []
+    is_org_repo = "/" in repo and not repo.endswith(".git")
+
+    def _has_git_dir(path: Path) -> bool:
+        return path.exists() and (path / ".git").exists()
+
+    def _is_valid_git_checkout(path: Path) -> bool:
+        if not _has_git_dir(path):
+            return False
+        try:
+            _git("rev-parse", "--is-inside-work-tree", cwd=path)
+            _git("rev-parse", "HEAD", cwd=path)
+            return True
+        except Exception:
+            return False
+
+    def _cleanup_partial_dir(path: Path) -> None:
+        if not path.exists():
+            return
+        if _is_valid_git_checkout(path):
+            return
+        shutil.rmtree(path, ignore_errors=True)
+
+    def _recover_after_failure(path: Path) -> str | None:
+        # gh clone can time out while the repo is actually cloned in background
+        if _is_valid_git_checkout(path):
+            return "existing"
+        _cleanup_partial_dir(path)
+        return None
+
+    if _is_valid_git_checkout(repo_path):
+        return "existing"
+
+    if is_org_repo:
+        gh_ready = False
+        try:
+            _gh("auth", "status", "-h", "github.com")
+            gh_ready = True
+        except Exception as exc:
+            attempts.append(f"gh auth status failed: {exc}")
+
+        if gh_ready:
+            try:
+                _gh("repo", "clone", repo, str(repo_path))
+                return "gh"
+            except Exception as exc:
+                attempts.append(f"gh repo clone failed: {exc}")
+                recovered = _recover_after_failure(repo_path)
+                if recovered:
+                    return recovered
+
+        ssh_url = f"git@github.com:{repo}.git"
+        try:
+            _git("clone", ssh_url, str(repo_path))
+            return "ssh"
+        except Exception as exc:
+            attempts.append(f"ssh clone failed: {exc}")
+            recovered = _recover_after_failure(repo_path)
+            if recovered:
+                return recovered
+
+        https_url = f"https://github.com/{repo}.git"
+        token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+        try:
+            if token:
+                _git(
+                    "-c",
+                    f"http.https://github.com/.extraheader=AUTHORIZATION: bearer {token}",
+                    "clone",
+                    https_url,
+                    str(repo_path),
+                )
+            else:
+                _git("clone", https_url, str(repo_path))
+            return "https"
+        except Exception as exc:
+            attempts.append(f"https clone failed: {exc}")
+            recovered = _recover_after_failure(repo_path)
+            if recovered:
+                return recovered
+    else:
+        try:
+            _git("clone", repo, str(repo_path))
+            return "git"
+        except Exception as exc:
+            attempts.append(f"git clone failed: {exc}")
+            recovered = _recover_after_failure(repo_path)
+            if recovered:
+                return recovered
+
+    raise RuntimeError(
+        f"Failed to clone {repo}. "
+        "Tried gh, ssh, and https methods. "
+        "Run `gh auth status` and ensure token has repo access.\n"
+        + "\n".join(attempts)
+    )
 
 
 def _prompt_list(prompt: str) -> list[str]:
@@ -279,7 +409,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     if initialized_feature_keys:
         console.print(f"[green]Initialized feature(s):[/green] {', '.join(initialized_feature_keys)}")
         console.print(f"[green]Active feature:[/green] {root_item.key}")
-        console.print("Next: run `bin/agentic repos`")
+        console.print("Next: run `bin/agentic set-repos`")
 
 
 def _init_feature(source: Any, feature: Any, with_children: bool) -> None:
@@ -354,6 +484,7 @@ def cmd_repos(args: argparse.Namespace) -> None:
         config["repos"] = repos
         write_yaml(config_path, config)
         console.print("[green]Updated feature repos.[/green]")
+        console.print("Next: run `bin/agentic set-workspace`")
     else:
         console.print("[yellow]No repos provided.[/yellow]")
 
@@ -395,10 +526,18 @@ def cmd_task_repos(args: argparse.Namespace) -> None:
 def cmd_workspace(args: argparse.Namespace) -> None:
     feature_key = _resolve_feature_arg(args.feature)
     _save_active_feature(feature_key)
-    generate_workspace(feature_key)
+    if not args.no_clone:
+        console.print("[bold]Preparing repositories before workspace generation...[/bold]")
+        cmd_workspace_setup(argparse.Namespace(feature=feature_key))
+    output = generate_workspace(feature_key)
+    console.print("Next steps:")
+    console.print(f'  1) Open workspace: code "{output}"')
+    console.print("  2) Start working in the opened terminals.")
 
 
 def cmd_workspace_setup(args: argparse.Namespace) -> None:
+    _load_credentials()
+    _normalize_github_token_env()
     feature_key = _resolve_feature_arg(args.feature)
     feature_dir = _feature_dir(feature_key)
     config = read_yaml(feature_dir / "config.yaml")
@@ -408,15 +547,48 @@ def cmd_workspace_setup(args: argparse.Namespace) -> None:
         return
 
     repos_root().mkdir(parents=True, exist_ok=True)
+    failed: list[str] = []
     for repo in repos:
         repo_name = repo.split("/")[-1]
         repo_path = repos_root() / repo_name
         if repo_path.exists():
-            console.print(f"[dim]Repo exists: {repo_path}[/dim]")
-            continue
-        url = f"https://github.com/{repo}.git"
+            if (repo_path / ".git").exists():
+                try:
+                    _git("rev-parse", "--is-inside-work-tree", cwd=repo_path)
+                    _git("rev-parse", "HEAD", cwd=repo_path)
+                except Exception:
+                    console.print(f"[yellow]Found incomplete git checkout for {repo_name}, recreating...[/yellow]")
+                    shutil.rmtree(repo_path, ignore_errors=True)
+                    # continue to clone below
+                else:
+                    console.print(f"[dim]Repo exists: {repo_path}[/dim]")
+                    continue
+            else:
+                # Recover from previously interrupted clone that left a non-git folder.
+                console.print(f"[yellow]Found non-git folder for {repo_name}, recreating...[/yellow]")
+                shutil.rmtree(repo_path, ignore_errors=True)
+        if repo_path.exists():
+            # Defensive cleanup for any leftovers.
+            shutil.rmtree(repo_path, ignore_errors=True)
         console.print(f"[bold]Cloning {repo} for {feature_key}...[/bold]")
-        _git("clone", url, str(repo_path))
+        try:
+            method = _clone_repo(repo, repo_path)
+            console.print(f"[green]Cloned {repo_name} via {method} into {repo_path}[/green]")
+        except Exception as exc:
+            failed.append(f"{repo_name}: {exc}")
+            console.print(f"[red]Failed cloning {repo_name}[/red]")
+
+    if failed:
+        console.print("\n[yellow]Some repositories failed to clone:[/yellow]")
+        for msg in failed:
+            console.print(f"  - {msg}")
+        console.print("\nTry:")
+        console.print("  1) gh auth status")
+        console.print("  2) gh auth login -h github.com")
+        console.print("  3) Verify token has org/repo access")
+        return
+
+    console.print("[green]Workspace repositories are ready.[/green]")
 
 
 def cmd_log(args: argparse.Namespace) -> None:
@@ -668,20 +840,21 @@ def main() -> None:
     init_cmd.add_argument("-n", "--no-children", action="store_true")
     init_cmd.set_defaults(func=cmd_init)
 
-    repos_cmd = sub.add_parser("repos")
+    repos_cmd = sub.add_parser("repos", aliases=["set-repos"])
     repos_cmd.add_argument("feature", nargs="?")
     repos_cmd.set_defaults(func=cmd_repos)
 
-    task_repos_cmd = sub.add_parser("task-repos")
+    task_repos_cmd = sub.add_parser("task-repos", aliases=["set-task-repos"])
     task_repos_cmd.add_argument("feature_or_task")
     task_repos_cmd.add_argument("task", nargs="?")
     task_repos_cmd.set_defaults(func=cmd_task_repos)
 
-    ws_cmd = sub.add_parser("workspace")
+    ws_cmd = sub.add_parser("workspace", aliases=["set-workspace"])
     ws_cmd.add_argument("feature", nargs="?")
+    ws_cmd.add_argument("--no-clone", action="store_true")
     ws_cmd.set_defaults(func=cmd_workspace)
 
-    ws_setup_cmd = sub.add_parser("workspace-setup")
+    ws_setup_cmd = sub.add_parser("workspace-setup", aliases=["set-workspace-setup"])
     ws_setup_cmd.add_argument("feature", nargs="?")
     ws_setup_cmd.set_defaults(func=cmd_workspace_setup)
 

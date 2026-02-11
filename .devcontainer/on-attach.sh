@@ -5,9 +5,9 @@ cat <<'EOF'
 
 Agentic-Lite quick guide:
   - README.md -> "Quick Start (1 minute)"
-  - Init feature:    bin/agentic init <FEATURE-ID> -c
-  - Set repos:       bin/agentic repos <FEATURE-ID>
-  - Build workspace: bin/agentic workspace <FEATURE-ID>
+  - Init feature:    bin/agentic init <FEATURE-ID>
+  - Set repos:       bin/agentic set-repos
+  - Build workspace: bin/agentic set-workspace
 
 Tip: if agentic commands fail, run:
   source .venv/bin/activate

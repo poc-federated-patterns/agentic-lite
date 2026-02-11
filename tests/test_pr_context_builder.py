@@ -22,8 +22,8 @@ class TestPrContextBuilder(TestCase):
             (task_dir / "manifest.yaml").write_text(
                 yaml.safe_dump({"task_key": "TASK-1", "title": "Task", "status": "Todo"})
             )
-            (feature_dir / "decisions.md").write_text("Decision entry\n")
             (task_dir / "research-notes").mkdir()
+            (task_dir / "research-notes" / "gained-context.md").write_text("Decision entry\n")
             (task_dir / "research-notes" / "note.md").write_text("Research\n")
             (task_dir / "diffs").mkdir()
             (task_dir / "diffs" / "repo.patch").write_text("diff\n")

@@ -25,6 +25,7 @@ def generate_workspace(feature_key: str) -> Path:
     config = read_yaml(feature_dir / "config.yaml")
     repo_list = config.get("repos", [])
     repo_names = [r.split("/")[-1] for r in repo_list]
+    credentials_path = repo_root() / "config" / "credentials.env"
 
     folders = [
         {"name": "Assistant", "path": str(repo_root().absolute())},
@@ -47,7 +48,7 @@ def generate_workspace(feature_key: str) -> Path:
         }
     ]
 
-    # Auto-open a terminal for the Assistant root (activate venv if present)
+    # Auto-open a terminal for the Assistant root (load creds + activate venv)
     tasks.append(
         {
             "label": "Term: Assistant",
@@ -55,6 +56,7 @@ def generate_workspace(feature_key: str) -> Path:
             "command": "zsh",
             "args": [
                 "-lc",
+                "if [ -f config/credentials.env ]; then set -a; source config/credentials.env; set +a; fi; "
                 "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; exec zsh -i",
             ],
             "options": {"cwd": str(repo_root().absolute())},
@@ -64,7 +66,7 @@ def generate_workspace(feature_key: str) -> Path:
         }
     )
 
-    # Auto-open a terminal per repo folder (activate venv if present)
+    # Auto-open a terminal per configured repo folder (if cloned)
     for repo_name in repo_names:
         repo_path = repos_root() / repo_name
         tasks.append(
@@ -74,9 +76,14 @@ def generate_workspace(feature_key: str) -> Path:
                 "command": "zsh",
                 "args": [
                     "-lc",
-                    "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; exec zsh -i",
+                    f'if [ -d "{repo_path}" ]; then cd "{repo_path}"; '
+                    f'if [ -f "{credentials_path}" ]; then set -a; source "{credentials_path}"; set +a; fi; '
+                    'if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; '
+                    "else "
+                    f'echo "Repo not cloned yet: {repo_name}. Run: bin/agentic workspace-setup {feature_key}"; '
+                    "fi; exec zsh -i",
                 ],
-                "options": {"cwd": str(repo_path.absolute())},
+                "options": {"cwd": str(repo_root().absolute())},
                 "problemMatcher": [],
                 "presentation": {"reveal": "silent", "panel": "dedicated"},
                 "runOptions": {"runOn": "folderOpen"},

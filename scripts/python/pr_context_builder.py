@@ -19,8 +19,8 @@ def build_context(feature_key: str, task_key: str) -> Path:
     feature_manifest = read_yaml(feature_dir / "manifest.yaml")
     task_manifest = read_yaml(task_dir / "manifest.yaml")
 
-    decisions_path = feature_dir / "decisions.md"
-    decisions_text = decisions_path.read_text() if decisions_path.exists() else ""
+    gained_context_path = task_dir / "research-notes" / "gained-context.md"
+    gained_context_text = gained_context_path.read_text() if gained_context_path.exists() else ""
 
     research_dir = task_dir / "research-notes"
     research_notes = []
@@ -51,9 +51,9 @@ def build_context(feature_key: str, task_key: str) -> Path:
         lines.append(task_manifest.get("acceptance_criteria", ""))
         lines.append("")
 
-    if decisions_text.strip():
-        lines.append("## Decision Log")
-        lines.append(decisions_text.strip())
+    if gained_context_text.strip():
+        lines.append("## Gained Context")
+        lines.append(gained_context_text.strip())
         lines.append("")
 
     if research_notes:

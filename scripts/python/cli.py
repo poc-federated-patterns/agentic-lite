@@ -69,6 +69,21 @@ def _task_dir(feature_key: str, task_key: str) -> Path:
     return _feature_dir(feature_key) / task_key
 
 
+def _resolve_feature_task(feature_or_task: str, maybe_task: str | None) -> tuple[str, str]:
+    """Resolve inputs that can be either FEATURE TASK or TASK-only."""
+    if maybe_task:
+        return feature_or_task, maybe_task
+
+    task_key = feature_or_task
+    inferred = _find_feature_for_task(task_key)
+    if not inferred:
+        raise RuntimeError(
+            f"Could not infer feature for task '{task_key}'. "
+            "Use '<FEATURE> <TASK>' or initialize the task first."
+        )
+    return inferred, task_key
+
+
 def _ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
@@ -145,6 +160,41 @@ def _prompt_list(prompt: str) -> list[str]:
     return [p for p in parts if p]
 
 
+def _prompt_select_one(options: list[str], prompt: str) -> str:
+    if not options:
+        return ""
+    for i, item in enumerate(options, start=1):
+        console.print(f"  {i}. {item}")
+    raw = input(prompt).strip() or "1"
+    try:
+        idx = int(raw)
+    except ValueError:
+        idx = 1
+    if idx < 1 or idx > len(options):
+        idx = 1
+    return options[idx - 1]
+
+
+def _prompt_select_many(options: list[str], prompt: str) -> list[str]:
+    if not options:
+        return []
+    raw = input(prompt).strip()
+    if not raw:
+        return []
+    selected: list[str] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            idx = int(token)
+        except ValueError:
+            continue
+        if 1 <= idx <= len(options):
+            selected.append(options[idx - 1])
+    return selected
+
+
 def _get_github_user() -> str:
     try:
         return _gh("api", "user", "-q", ".login")
@@ -183,10 +233,6 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     if not (feature_dir / "config.yaml").exists():
         write_yaml(feature_dir / "config.yaml", {"repos": []})
-
-    decisions_path = feature_dir / "decisions.md"
-    if not decisions_path.exists():
-        decisions_path.write_text(f"# Decisions for {feature_key}\n\n")
 
     if args.with_children:
         console.print("[bold]Fetching child tasks...[/bold]")
@@ -232,6 +278,9 @@ def _create_task(feature_key: str, task: Any) -> None:
         write_yaml(task_dir / "config.yaml", {"repos": [], "main_repo": ""})
     for folder in ["diffs", "pr", "research-notes"]:
         _ensure_dir(task_dir / folder)
+    context_log = task_dir / "research-notes" / "gained-context.md"
+    if not context_log.exists():
+        context_log.write_text(f"# Gained Context for {task.key}\n\n")
 
 
 def cmd_repos(args: argparse.Namespace) -> None:
@@ -249,17 +298,34 @@ def cmd_repos(args: argparse.Namespace) -> None:
 
 
 def cmd_task_repos(args: argparse.Namespace) -> None:
-    task_dir = _task_dir(args.feature, args.task)
+    feature_key, task_key = _resolve_feature_task(args.feature_or_task, args.task)
+    task_dir = _task_dir(feature_key, task_key)
     config_path = task_dir / "config.yaml"
     config = read_yaml(config_path)
 
-    repos = _prompt_list("Repos for this task (comma-separated, org/repo): ")
-    if repos:
-        config["repos"] = repos
+    feature_repos = read_yaml(_feature_dir(feature_key) / "config.yaml").get("repos", [])
+    if not feature_repos:
+        console.print("[yellow]No feature repos configured; falling back to free text.[/yellow]")
+        repos = _prompt_list("Repos for this task (comma-separated, org/repo): ")
+        if repos:
+            config["repos"] = repos
+            main_repo = input("Main repo (org/repo): ").strip()
+            if main_repo:
+                config["main_repo"] = main_repo
+        write_yaml(config_path, config)
+        console.print("[green]Updated task repos.[/green]")
+        return
 
-    main_repo = input("Main repo (org/repo): ").strip()
-    if main_repo:
-        config["main_repo"] = main_repo
+    console.print("[bold]Select the main repo for this task:[/bold]")
+    main_repo = _prompt_select_one(feature_repos, "Main repo number [1]: ")
+    supporting_candidates = [r for r in feature_repos if r != main_repo]
+    console.print("[bold]Select supporting repos (comma-separated numbers, empty for none):[/bold]")
+    for i, item in enumerate(supporting_candidates, start=1):
+        console.print(f"  {i}. {item}")
+    supporting = _prompt_select_many(supporting_candidates, "Supporting repos: ")
+
+    config["main_repo"] = main_repo
+    config["repos"] = [main_repo, *[r for r in supporting if r != main_repo]]
 
     write_yaml(config_path, config)
     console.print("[green]Updated task repos.[/green]")
@@ -290,8 +356,12 @@ def cmd_workspace_setup(args: argparse.Namespace) -> None:
 
 
 def cmd_log(args: argparse.Namespace) -> None:
-    feature_dir = _feature_dir(args.feature)
-    log_path = feature_dir / "decisions.md"
+    feature_key, task_key = _resolve_feature_task(args.feature_or_task, args.task)
+    task_research = _task_dir(feature_key, task_key) / "research-notes"
+    _ensure_dir(task_research)
+    log_path = task_research / "gained-context.md"
+    if not log_path.exists():
+        log_path.write_text(f"# Gained Context for {task_key}\n\n")
     entry = input("Decision note: ").strip()
     if not entry:
         console.print("[yellow]No entry provided.[/yellow]")
@@ -299,7 +369,7 @@ def cmd_log(args: argparse.Namespace) -> None:
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ")
     with open(log_path, "a") as f:
         f.write(f"- {timestamp} {entry}\n")
-    console.print("[green]Logged decision.[/green]")
+    console.print(f"[green]Logged context in:[/green] {log_path}")
 
 
 def _resolve_repos_for_task(feature_key: str, task_key: str, repos: Iterable[str] | None) -> list[str]:
@@ -345,13 +415,7 @@ def _find_feature_for_task(task_key: str) -> str | None:
 
 
 def cmd_diff(args: argparse.Namespace) -> None:
-    # Support calling with either: diff FEATURE TASK  or diff TASK
-    if getattr(args, "task", None):
-        feature_key = args.feature_or_task
-        task_key = args.task
-    else:
-        task_key = args.feature_or_task
-        feature_key = _find_feature_for_task(task_key) or task_key.split("-")[0]
+    feature_key, task_key = _resolve_feature_task(args.feature_or_task, args.task)
 
     # Resolve repos from args/config; else auto-detect from local repos with matching branch prefix
     repos = []
@@ -408,19 +472,21 @@ def cmd_diff(args: argparse.Namespace) -> None:
 
 
 def cmd_pr_context(args: argparse.Namespace) -> None:
-    output = build_context(args.feature, args.task)
+    feature_key, task_key = _resolve_feature_task(args.feature_or_task, args.task)
+    output = build_context(feature_key, task_key)
     console.print(f"[green]Context created:[/green] {output}")
 
 
 def cmd_pr_build(args: argparse.Namespace) -> None:
-    feature_dir = _feature_dir(args.feature)
-    task_dir = _task_dir(args.feature, args.task)
+    feature_key, task_key = _resolve_feature_task(args.feature_or_task, args.task)
+    feature_dir = _feature_dir(feature_key)
+    task_dir = _task_dir(feature_key, task_key)
     template_path = repo_root() / ".github" / "PULL_REQUEST_TEMPLATE.md"
     description_path = task_dir / "pr" / "description.md"
 
     context_path = task_dir / "pr" / "context.md"
     if not context_path.exists():
-        build_context(args.feature, args.task)
+        build_context(feature_key, task_key)
 
     template = template_path.read_text() if template_path.exists() else ""
     context_block = f"## Context\n\nSee `{context_path}`\n"
@@ -434,8 +500,7 @@ def cmd_pr_build(args: argparse.Namespace) -> None:
 
 
 def cmd_pr_submit(args: argparse.Namespace) -> None:
-    feature_key = args.feature
-    task_key = args.task
+    feature_key, task_key = _resolve_feature_task(args.feature_or_task, args.task)
     task_dir = _task_dir(feature_key, task_key)
 
     task_config_path = task_dir / "config.yaml"
@@ -443,10 +508,22 @@ def cmd_pr_submit(args: argparse.Namespace) -> None:
     repos = task_config.get("repos", [])
     main_repo = task_config.get("main_repo", "")
 
-    if not repos or not main_repo:
-        console.print("[yellow]Task repos or main_repo not set.[/yellow]")
-        console.print(f"Run: bin/agentic task-repos {feature_key} {task_key}")
+    if not repos:
+        repos = _resolve_repos_for_task(feature_key, task_key, None)
+    if not repos:
+        console.print("[yellow]No repos configured for this task.[/yellow]")
+        console.print("Run: bin/agentic task-repos <TASK>")
         return
+
+    if not main_repo:
+        if len(repos) == 1:
+            main_repo = repos[0]
+        else:
+            console.print("[bold]Select main repo for PR body:[/bold]")
+            main_repo = _prompt_select_one(repos, "Main repo number [1]: ")
+        task_config["main_repo"] = main_repo
+        task_config["repos"] = repos
+        write_yaml(task_config_path, task_config)
 
     description_path = task_dir / "pr" / "description.md"
     if not description_path.exists():
@@ -465,8 +542,10 @@ def cmd_pr_submit(args: argparse.Namespace) -> None:
 def _create_pr(repo: str, title: str, body_path: Path, task_key: str) -> str:
     repo_name = repo.split("/")[-1]
     repo_path = repos_root() / repo_name
-    base_branch = _gh("repo", "view", repo, "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name")
-    head_branch = _git("rev-parse", "--abbrev-ref", "HEAD", cwd=repo_path)
+    base_branch = _default_branch(repo_path)
+    head_branch = next((b for b in _local_branches(repo_path) if b.startswith(task_key)), "") or _head_branch(repo_path)
+    if not head_branch or not head_branch.startswith(task_key):
+        raise RuntimeError(f"{repo_name}: no local branch starting with {task_key}")
 
     console.print(f"[bold]Creating PR for {repo}...[/bold]")
     url = _gh(
@@ -482,20 +561,20 @@ def _create_pr(repo: str, title: str, body_path: Path, task_key: str) -> str:
         title,
         "--body-file",
         str(body_path),
-        "--json",
-        "url",
-        "-q",
-        ".url",
     )
-    console.print(f"[green]Created PR:[/green] {url}")
-    return url
+    final_url = url.strip().splitlines()[-1]
+    console.print(f"[green]Created PR:[/green] {final_url}")
+    return final_url
 
 
 def _create_supporting_pr(repo: str, title: str, main_url: str, task_key: str) -> None:
     repo_name = repo.split("/")[-1]
     repo_path = repos_root() / repo_name
-    base_branch = _gh("repo", "view", repo, "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name")
-    head_branch = _git("rev-parse", "--abbrev-ref", "HEAD", cwd=repo_path)
+    base_branch = _default_branch(repo_path)
+    head_branch = next((b for b in _local_branches(repo_path) if b.startswith(task_key)), "") or _head_branch(repo_path)
+    if not head_branch or not head_branch.startswith(task_key):
+        console.print(f"[yellow]Skipping {repo_name}: no branch starting with {task_key}[/yellow]")
+        return
     body = f"Supporting PR for {task_key}. Main PR: {main_url}\n"
 
     console.print(f"[bold]Creating supporting PR for {repo}...[/bold]")
@@ -529,8 +608,8 @@ def main() -> None:
     repos_cmd.set_defaults(func=cmd_repos)
 
     task_repos_cmd = sub.add_parser("task-repos")
-    task_repos_cmd.add_argument("feature")
-    task_repos_cmd.add_argument("task")
+    task_repos_cmd.add_argument("feature_or_task")
+    task_repos_cmd.add_argument("task", nargs="?")
     task_repos_cmd.set_defaults(func=cmd_task_repos)
 
     ws_cmd = sub.add_parser("workspace")
@@ -542,7 +621,8 @@ def main() -> None:
     ws_setup_cmd.set_defaults(func=cmd_workspace_setup)
 
     log_cmd = sub.add_parser("log")
-    log_cmd.add_argument("feature")
+    log_cmd.add_argument("feature_or_task")
+    log_cmd.add_argument("task", nargs="?")
     log_cmd.set_defaults(func=cmd_log)
 
     diff_cmd = sub.add_parser("diff")
@@ -556,18 +636,18 @@ def main() -> None:
     pr_sub = pr_cmd.add_subparsers(dest="pr_cmd", required=True)
 
     pr_context = pr_sub.add_parser("context")
-    pr_context.add_argument("feature")
-    pr_context.add_argument("task")
+    pr_context.add_argument("feature_or_task")
+    pr_context.add_argument("task", nargs="?")
     pr_context.set_defaults(func=cmd_pr_context)
 
     pr_build = pr_sub.add_parser("build")
-    pr_build.add_argument("feature")
-    pr_build.add_argument("task")
+    pr_build.add_argument("feature_or_task")
+    pr_build.add_argument("task", nargs="?")
     pr_build.set_defaults(func=cmd_pr_build)
 
     pr_submit = pr_sub.add_parser("submit")
-    pr_submit.add_argument("feature")
-    pr_submit.add_argument("task")
+    pr_submit.add_argument("feature_or_task")
+    pr_submit.add_argument("task", nargs="?")
     pr_submit.set_defaults(func=cmd_pr_submit)
 
     args = parser.parse_args()

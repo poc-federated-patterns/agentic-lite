@@ -1,11 +1,11 @@
 ---
 name: agentic-decision-log
-description: Append a structured decision log entry for a feature.
+description: Append structured context notes to a task research log.
 ---
 
-You are working in this repo. Append a decision log entry to the feature-level file:
+You are working in this repo. Append a context log entry to:
 
-- Target file: `features/<FEATURE>/decisions.md`
+- Target file: `features/<FEATURE>/<TASK>/research-notes/gained-context.md`
 
 Use this template, filling in the user-provided details:
 
@@ -18,6 +18,6 @@ Use this template, filling in the user-provided details:
   - Links: <PRs, tasks, docs>
 ```
 
-If the file does not exist, create it with a title line `# Decisions for <FEATURE>` and then append the entry.
+If the file does not exist, create it with a title line `# Gained Context for <TASK>` and then append the entry.
 
 

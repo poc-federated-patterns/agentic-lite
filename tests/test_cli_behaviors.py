@@ -82,10 +82,14 @@ class TestCliBehaviors(TestCase):
             },
         )()
 
-        args = Namespace(feature="EPIC-1", with_children=False)
+        args = Namespace(feature="EPIC-1", no_children=False)
         with patch.object(cli, "_jira_source", return_value=source):
             with self.assertRaises(RuntimeError) as ctx:
                 cli.cmd_init(args)
         self.assertIn("Only feature-level stories are supported", str(ctx.exception))
+
+    def test_resolve_feature_arg_uses_active_feature(self):
+        with patch.object(cli, "_get_active_feature", return_value="FEAT-22"):
+            self.assertEqual(cli._resolve_feature_arg(None), "FEAT-22")
 
 

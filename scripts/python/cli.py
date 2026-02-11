@@ -39,6 +39,50 @@ except ImportError:
 console = Console()
 
 
+def _state_path() -> Path:
+    return repo_root() / ".agentic" / "state.yaml"
+
+
+def _save_active_feature(feature_key: str) -> None:
+    path = _state_path()
+    _ensure_dir(path.parent)
+    write_yaml(path, {"active_feature": feature_key})
+
+
+def _get_active_feature() -> str | None:
+    state = read_yaml(_state_path())
+    feature = state.get("active_feature")
+    if feature and (_feature_dir(feature).exists()):
+        return feature
+    return None
+
+
+def _latest_feature() -> str | None:
+    base = features_root()
+    if not base.exists():
+        return None
+    candidates = [p for p in base.iterdir() if p.is_dir()]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0].name
+
+
+def _resolve_feature_arg(feature: str | None) -> str:
+    if feature:
+        return feature
+    current = _get_active_feature()
+    if current:
+        return current
+    latest = _latest_feature()
+    if latest:
+        return latest
+    raise RuntimeError(
+        "No active feature found. Run `bin/agentic init <FEATURE-ID>` first "
+        "or pass the feature key explicitly."
+    )
+
+
 def _load_credentials() -> None:
     load_env_file(repo_root() / "config" / "credentials.env")
 
@@ -222,7 +266,8 @@ def cmd_init(args: argparse.Namespace) -> None:
         )
 
     initialized_feature_keys: list[str] = [root_item.key]
-    _init_feature(source, root_item, with_children=args.with_children)
+    _init_feature(source, root_item, with_children=not args.no_children)
+    _save_active_feature(root_item.key)
 
     branch_name = f"{root_key}-{_get_github_user()}"
     try:
@@ -233,7 +278,8 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     if initialized_feature_keys:
         console.print(f"[green]Initialized feature(s):[/green] {', '.join(initialized_feature_keys)}")
-        console.print(f"Next: run `bin/agentic repos {initialized_feature_keys[0]}`")
+        console.print(f"[green]Active feature:[/green] {root_item.key}")
+        console.print("Next: run `bin/agentic repos`")
 
 
 def _init_feature(source: Any, feature: Any, with_children: bool) -> None:
@@ -297,10 +343,12 @@ def _create_task(feature_key: str, task: Any) -> None:
 
 
 def cmd_repos(args: argparse.Namespace) -> None:
-    feature_dir = _feature_dir(args.feature)
+    feature_key = _resolve_feature_arg(args.feature)
+    feature_dir = _feature_dir(feature_key)
     config_path = feature_dir / "config.yaml"
     config = read_yaml(config_path)
 
+    console.print(f"[bold]Configuring repos for feature:[/bold] {feature_key}")
     repos = _prompt_list("Enter repos (comma-separated, org/repo): ")
     if repos:
         config["repos"] = repos
@@ -345,11 +393,14 @@ def cmd_task_repos(args: argparse.Namespace) -> None:
 
 
 def cmd_workspace(args: argparse.Namespace) -> None:
-    generate_workspace(args.feature)
+    feature_key = _resolve_feature_arg(args.feature)
+    _save_active_feature(feature_key)
+    generate_workspace(feature_key)
 
 
 def cmd_workspace_setup(args: argparse.Namespace) -> None:
-    feature_dir = _feature_dir(args.feature)
+    feature_key = _resolve_feature_arg(args.feature)
+    feature_dir = _feature_dir(feature_key)
     config = read_yaml(feature_dir / "config.yaml")
     repos = config.get("repos", [])
     if not repos:
@@ -364,7 +415,7 @@ def cmd_workspace_setup(args: argparse.Namespace) -> None:
             console.print(f"[dim]Repo exists: {repo_path}[/dim]")
             continue
         url = f"https://github.com/{repo}.git"
-        console.print(f"[bold]Cloning {repo}...[/bold]")
+        console.print(f"[bold]Cloning {repo} for {feature_key}...[/bold]")
         _git("clone", url, str(repo_path))
 
 
@@ -613,11 +664,12 @@ def main() -> None:
 
     init_cmd = sub.add_parser("init")
     init_cmd.add_argument("feature")
-    init_cmd.add_argument("-c", "--with-children", action="store_true")
+    init_cmd.add_argument("-c", "--with-children", action="store_true", help=argparse.SUPPRESS)
+    init_cmd.add_argument("-n", "--no-children", action="store_true")
     init_cmd.set_defaults(func=cmd_init)
 
     repos_cmd = sub.add_parser("repos")
-    repos_cmd.add_argument("feature")
+    repos_cmd.add_argument("feature", nargs="?")
     repos_cmd.set_defaults(func=cmd_repos)
 
     task_repos_cmd = sub.add_parser("task-repos")
@@ -626,11 +678,11 @@ def main() -> None:
     task_repos_cmd.set_defaults(func=cmd_task_repos)
 
     ws_cmd = sub.add_parser("workspace")
-    ws_cmd.add_argument("feature")
+    ws_cmd.add_argument("feature", nargs="?")
     ws_cmd.set_defaults(func=cmd_workspace)
 
     ws_setup_cmd = sub.add_parser("workspace-setup")
-    ws_setup_cmd.add_argument("feature")
+    ws_setup_cmd.add_argument("feature", nargs="?")
     ws_setup_cmd.set_defaults(func=cmd_workspace_setup)
 
     log_cmd = sub.add_parser("log")

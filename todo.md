@@ -2,7 +2,7 @@
 
 ### Current Issue
 
-No open blocker captured right now.
+Clean up README and stream-line it.
 
 ### Recently Completed
 

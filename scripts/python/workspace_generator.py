@@ -30,6 +30,12 @@ def generate_workspace(feature_key: str) -> Path:
         'if [ -n "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ]; then export GITHUB_TOKEN="$GH_TOKEN"; fi; '
         'if [ -n "${GITHUB_TOKEN:-}" ] && [ -z "${GH_TOKEN:-}" ]; then export GH_TOKEN="$GITHUB_TOKEN"; fi; '
     )
+    token_debug = (
+        'gh_len=${#GH_TOKEN}; gh_tail=${GH_TOKEN: -6}; '
+        'ght_len=${#GITHUB_TOKEN}; ght_tail=${GITHUB_TOKEN: -6}; '
+        'echo "[agentic-lite] token debug: GH_TOKEN len=${gh_len} tail=*${gh_tail}, '
+        'GITHUB_TOKEN len=${ght_len} tail=*${ght_tail}"'
+    )
 
     folders = [
         {"name": "agentic-lite", "path": str(repo_root().absolute())},
@@ -62,6 +68,8 @@ def generate_workspace(feature_key: str) -> Path:
                 (
                     "if [ -f config/credentials.env ]; then set -a; source config/credentials.env; set +a; fi; "
                     + token_normalize
+                    + token_debug
+                    + "; "
                     + "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; "
                     + f'echo "agentic-lite workspace ready for {feature_key}"; '
                     + 'echo "Next:"; '
@@ -95,6 +103,8 @@ def generate_workspace(feature_key: str) -> Path:
                         f'if [ -d "{repo_path}" ]; then cd "{repo_path}"; '
                         f'if [ -f "{credentials_path}" ]; then set -a; source "{credentials_path}"; set +a; fi; '
                         + token_normalize
+                        + token_debug
+                        + "; "
                         + 'if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; '
                         + "else "
                         + f'echo "Repo not cloned yet: {repo_name}. Run: bin/agentic set-workspace-setup {feature_key}"; '

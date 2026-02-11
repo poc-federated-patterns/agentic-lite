@@ -9,6 +9,7 @@ import subprocess
 import yaml
 
 from scripts.python import cli
+from scripts.python.util import load_env_file
 
 
 class TestCliBehaviors(TestCase):
@@ -144,10 +145,11 @@ class TestCliBehaviors(TestCase):
     def test_clone_repo_prefers_gh_for_org_repo(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_path = Path(tmp_dir) / "foo"
-            with patch.object(cli, "_gh", return_value=""), patch.object(cli, "_git") as git_call:
+            with patch.object(cli, "_gh", return_value="") as gh_call, patch.object(cli, "_git") as git_call:
                 method = cli._clone_repo("org/foo", repo_path)
             self.assertEqual(method, "gh")
             git_call.assert_not_called()
+            self.assertTrue(any(call.args[:4] == ("repo", "clone", "org/foo", str(repo_path)) for call in gh_call.call_args_list))
 
     def test_clone_repo_falls_back_to_ssh_when_gh_auth_unavailable(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -158,6 +160,7 @@ class TestCliBehaviors(TestCase):
                 method = cli._clone_repo("org/foo", repo_path)
             self.assertEqual(method, "ssh")
             self.assertTrue(git_call.called)
+            self.assertIn("--depth", git_call.call_args.args)
 
     def test_git_timeout_is_raised_as_runtime_error(self):
         with patch("scripts.python.cli.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["git", "clone"], timeout=1)):
@@ -176,5 +179,56 @@ class TestCliBehaviors(TestCase):
             self.assertEqual(method, "existing")
             gh_call.assert_not_called()
             self.assertGreaterEqual(git_call.call_count, 2)
+
+    def test_load_credentials_overrides_existing_tokens(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = root / "config"
+            config.mkdir(parents=True)
+            (config / "credentials.env").write_text("GH_TOKEN=filetoken\nGITHUB_TOKEN=filetoken2\n")
+
+            old_gh = os.environ.get("GH_TOKEN")
+            old_github = os.environ.get("GITHUB_TOKEN")
+            try:
+                os.environ["GH_TOKEN"] = "oldtoken"
+                os.environ["GITHUB_TOKEN"] = "oldtoken2"
+                with patch.object(cli, "repo_root", return_value=root):
+                    cli._load_credentials()
+                self.assertEqual(os.environ.get("GH_TOKEN"), "filetoken")
+                self.assertEqual(os.environ.get("GITHUB_TOKEN"), "filetoken2")
+            finally:
+                if old_gh is None:
+                    os.environ.pop("GH_TOKEN", None)
+                else:
+                    os.environ["GH_TOKEN"] = old_gh
+                if old_github is None:
+                    os.environ.pop("GITHUB_TOKEN", None)
+                else:
+                    os.environ["GITHUB_TOKEN"] = old_github
+
+    def test_load_env_file_parses_inline_comment_and_export(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_file = Path(tmp_dir) / "credentials.env"
+            env_file.write_text(
+                "GH_TOKEN=ghp_1234567890 # inline comment\n"
+                'export GITHUB_TOKEN="ghp_abcdefghij"\n'
+            )
+            old_gh = os.environ.get("GH_TOKEN")
+            old_github = os.environ.get("GITHUB_TOKEN")
+            try:
+                os.environ.pop("GH_TOKEN", None)
+                os.environ.pop("GITHUB_TOKEN", None)
+                load_env_file(env_file, override_existing=True)
+                self.assertEqual(os.environ.get("GH_TOKEN"), "ghp_1234567890")
+                self.assertEqual(os.environ.get("GITHUB_TOKEN"), "ghp_abcdefghij")
+            finally:
+                if old_gh is None:
+                    os.environ.pop("GH_TOKEN", None)
+                else:
+                    os.environ["GH_TOKEN"] = old_gh
+                if old_github is None:
+                    os.environ.pop("GITHUB_TOKEN", None)
+                else:
+                    os.environ["GITHUB_TOKEN"] = old_github
 
 

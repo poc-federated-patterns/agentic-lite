@@ -24,7 +24,7 @@ def repos_root() -> Path:
     return repo_root().parent / "repos"
 
 
-def load_env_file(env_path: Path) -> None:
+def load_env_file(env_path: Path, override_existing: bool = False) -> None:
     if not env_path.exists():
         return
     for line in env_path.read_text().splitlines():
@@ -32,7 +32,20 @@ def load_env_file(env_path: Path) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip())
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export "):].strip()
+        value = value.strip()
+        # Support inline comments: GH_TOKEN=xxx # comment
+        if " #" in value and not (value.startswith('"') or value.startswith("'")):
+            value = value.split(" #", 1)[0].rstrip()
+        # Strip optional wrapping quotes
+        if (value.startswith('"') and value.endswith('"')) or (
+            value.startswith("'") and value.endswith("'")
+        ):
+            value = value[1:-1]
+        if override_existing or key not in os.environ:
+            os.environ[key] = value
 
 
 def read_yaml(path: Path) -> dict[str, Any]:

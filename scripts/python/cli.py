@@ -85,7 +85,8 @@ def _resolve_feature_arg(feature: str | None) -> str:
 
 
 def _load_credentials() -> None:
-    load_env_file(repo_root() / "config" / "credentials.env")
+    # For workspace/auth flows we want credentials.env to be the source of truth.
+    load_env_file(repo_root() / "config" / "credentials.env", override_existing=True)
 
 
 def _jira_source():
@@ -219,6 +220,28 @@ def _normalize_github_token_env() -> None:
         os.environ["GH_TOKEN"] = os.environ["GITHUB_TOKEN"]
 
 
+def _auth_debug_summary() -> str:
+    env_source = "none"
+    if (repo_root() / "config" / "credentials.env").exists():
+        env_source = "credentials.env"
+    gh_present = "yes" if os.getenv("GH_TOKEN") else "no"
+    github_present = "yes" if os.getenv("GITHUB_TOKEN") else "no"
+    token_hint = "GH_TOKEN" if os.getenv("GH_TOKEN") else ("GITHUB_TOKEN" if os.getenv("GITHUB_TOKEN") else "none")
+    return (
+        f"Auth debug: env_source={env_source}, GH_TOKEN={gh_present}, "
+        f"GITHUB_TOKEN={github_present}, preferred_token={token_hint}"
+    )
+
+
+def _masked_token_hint(name: str) -> str:
+    value = os.getenv(name, "")
+    if not value:
+        return f"{name}=<empty>"
+    tail = value[-6:] if len(value) >= 6 else value
+    has_space = any(c.isspace() for c in value)
+    return f"{name}=len:{len(value)}, tail:*{tail}, has_space:{has_space}"
+
+
 def _clone_repo(repo: str, repo_path: Path) -> str:
     """Clone repository using robust auth fallbacks.
 
@@ -271,7 +294,7 @@ def _clone_repo(repo: str, repo_path: Path) -> str:
 
         if gh_ready:
             try:
-                _gh("repo", "clone", repo, str(repo_path))
+                _gh("repo", "clone", repo, str(repo_path), "--", "--depth", "1")
                 return "gh"
             except Exception as exc:
                 attempts.append(f"gh repo clone failed: {exc}")
@@ -281,7 +304,7 @@ def _clone_repo(repo: str, repo_path: Path) -> str:
 
         ssh_url = f"git@github.com:{repo}.git"
         try:
-            _git("clone", ssh_url, str(repo_path))
+            _git("clone", "--depth", "1", ssh_url, str(repo_path))
             return "ssh"
         except Exception as exc:
             attempts.append(f"ssh clone failed: {exc}")
@@ -297,11 +320,13 @@ def _clone_repo(repo: str, repo_path: Path) -> str:
                     "-c",
                     f"http.https://github.com/.extraheader=AUTHORIZATION: bearer {token}",
                     "clone",
+                    "--depth",
+                    "1",
                     https_url,
                     str(repo_path),
                 )
             else:
-                _git("clone", https_url, str(repo_path))
+                _git("clone", "--depth", "1", https_url, str(repo_path))
             return "https"
         except Exception as exc:
             attempts.append(f"https clone failed: {exc}")
@@ -310,7 +335,7 @@ def _clone_repo(repo: str, repo_path: Path) -> str:
                 return recovered
     else:
         try:
-            _git("clone", repo, str(repo_path))
+            _git("clone", "--depth", "1", repo, str(repo_path))
             return "git"
         except Exception as exc:
             attempts.append(f"git clone failed: {exc}")
@@ -538,6 +563,14 @@ def cmd_workspace(args: argparse.Namespace) -> None:
 def cmd_workspace_setup(args: argparse.Namespace) -> None:
     _load_credentials()
     _normalize_github_token_env()
+    console.print(f"[dim]{_auth_debug_summary()}[/dim]")
+    console.print(f"[dim]Auth debug: {_masked_token_hint('GH_TOKEN')}[/dim]")
+    console.print(f"[dim]Auth debug: {_masked_token_hint('GITHUB_TOKEN')}[/dim]")
+    try:
+        _gh("auth", "status", "-h", "github.com")
+        console.print("[dim]Auth debug: gh auth status is OK[/dim]")
+    except Exception as exc:
+        console.print(f"[dim]Auth debug: gh auth status failed ({exc})[/dim]")
     feature_key = _resolve_feature_arg(args.feature)
     feature_dir = _feature_dir(feature_key)
     config = read_yaml(feature_dir / "config.yaml")

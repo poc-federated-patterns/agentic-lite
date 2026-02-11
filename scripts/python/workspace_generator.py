@@ -30,11 +30,16 @@ def generate_workspace(feature_key: str) -> Path:
         'if [ -n "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ]; then export GITHUB_TOKEN="$GH_TOKEN"; fi; '
         'if [ -n "${GITHUB_TOKEN:-}" ] && [ -z "${GH_TOKEN:-}" ]; then export GH_TOKEN="$GITHUB_TOKEN"; fi; '
     )
+    git_auth_setup = (
+        'if command -v gh >/dev/null 2>&1; then gh auth setup-git >/dev/null 2>&1 || true; fi; '
+    )
     token_debug = (
+        'if [ "${AGENTIC_DEBUG:-0}" = "1" ]; then '
         'gh_len=${#GH_TOKEN}; gh_tail=${GH_TOKEN: -6}; '
         'ght_len=${#GITHUB_TOKEN}; ght_tail=${GITHUB_TOKEN: -6}; '
         'echo "[agentic-lite] token debug: GH_TOKEN len=${gh_len} tail=*${gh_tail}, '
-        'GITHUB_TOKEN len=${ght_len} tail=*${ght_tail}"'
+        'GITHUB_TOKEN len=${ght_len} tail=*${ght_tail}"; '
+        "fi"
     )
 
     folders = [
@@ -68,6 +73,7 @@ def generate_workspace(feature_key: str) -> Path:
                 (
                     "if [ -f config/credentials.env ]; then set -a; source config/credentials.env; set +a; fi; "
                     + token_normalize
+                    + git_auth_setup
                     + token_debug
                     + "; "
                     + "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; "
@@ -103,6 +109,7 @@ def generate_workspace(feature_key: str) -> Path:
                         f'if [ -d "{repo_path}" ]; then cd "{repo_path}"; '
                         f'if [ -f "{credentials_path}" ]; then set -a; source "{credentials_path}"; set +a; fi; '
                         + token_normalize
+                        + git_auth_setup
                         + token_debug
                         + "; "
                         + 'if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; '

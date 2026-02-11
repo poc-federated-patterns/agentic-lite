@@ -242,6 +242,12 @@ def _masked_token_hint(name: str) -> str:
     return f"{name}=len:{len(value)}, tail:*{tail}, has_space:{has_space}"
 
 
+def _is_debug_mode(args: argparse.Namespace | None = None) -> bool:
+    if args is not None and getattr(args, "debug", False):
+        return True
+    return os.getenv("AGENTIC_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _clone_repo(repo: str, repo_path: Path) -> str:
     """Clone repository using robust auth fallbacks.
 
@@ -553,7 +559,7 @@ def cmd_workspace(args: argparse.Namespace) -> None:
     _save_active_feature(feature_key)
     if not args.no_clone:
         console.print("[bold]Preparing repositories before workspace generation...[/bold]")
-        cmd_workspace_setup(argparse.Namespace(feature=feature_key))
+        cmd_workspace_setup(argparse.Namespace(feature=feature_key, debug=getattr(args, "debug", False)))
     output = generate_workspace(feature_key)
     console.print("Next steps:")
     console.print(f'  1) Open workspace: code "{output}"')
@@ -563,14 +569,16 @@ def cmd_workspace(args: argparse.Namespace) -> None:
 def cmd_workspace_setup(args: argparse.Namespace) -> None:
     _load_credentials()
     _normalize_github_token_env()
-    console.print(f"[dim]{_auth_debug_summary()}[/dim]")
-    console.print(f"[dim]Auth debug: {_masked_token_hint('GH_TOKEN')}[/dim]")
-    console.print(f"[dim]Auth debug: {_masked_token_hint('GITHUB_TOKEN')}[/dim]")
-    try:
-        _gh("auth", "status", "-h", "github.com")
-        console.print("[dim]Auth debug: gh auth status is OK[/dim]")
-    except Exception as exc:
-        console.print(f"[dim]Auth debug: gh auth status failed ({exc})[/dim]")
+    debug_mode = _is_debug_mode(args)
+    if debug_mode:
+        console.print(f"[dim]{_auth_debug_summary()}[/dim]")
+        console.print(f"[dim]Auth debug: {_masked_token_hint('GH_TOKEN')}[/dim]")
+        console.print(f"[dim]Auth debug: {_masked_token_hint('GITHUB_TOKEN')}[/dim]")
+        try:
+            _gh("auth", "status", "-h", "github.com")
+            console.print("[dim]Auth debug: gh auth status is OK[/dim]")
+        except Exception as exc:
+            console.print(f"[dim]Auth debug: gh auth status failed ({exc})[/dim]")
     feature_key = _resolve_feature_arg(args.feature)
     feature_dir = _feature_dir(feature_key)
     config = read_yaml(feature_dir / "config.yaml")
@@ -885,10 +893,12 @@ def main() -> None:
     ws_cmd = sub.add_parser("workspace", aliases=["set-workspace"])
     ws_cmd.add_argument("feature", nargs="?")
     ws_cmd.add_argument("--no-clone", action="store_true")
+    ws_cmd.add_argument("--debug", action="store_true")
     ws_cmd.set_defaults(func=cmd_workspace)
 
     ws_setup_cmd = sub.add_parser("workspace-setup", aliases=["set-workspace-setup"])
     ws_setup_cmd.add_argument("feature", nargs="?")
+    ws_setup_cmd.add_argument("--debug", action="store_true")
     ws_setup_cmd.set_defaults(func=cmd_workspace_setup)
 
     log_cmd = sub.add_parser("log")

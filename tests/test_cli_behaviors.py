@@ -71,4 +71,21 @@ class TestCliBehaviors(TestCase):
             config = yaml.safe_load((task_dir / "config.yaml").read_text())
             self.assertEqual(config["main_repo"], "org/foo")
 
+    def test_init_rejects_epic(self):
+        root_item = type("Item", (), {"key": "EPIC-1", "item_type": "epic"})()
+        source = type(
+            "Source",
+            (),
+            {
+                "validate_key": lambda _self, _k: True,
+                "fetch_item": lambda _self, _k: root_item,
+            },
+        )()
+
+        args = Namespace(feature="EPIC-1", with_children=False)
+        with patch.object(cli, "_jira_source", return_value=source):
+            with self.assertRaises(RuntimeError) as ctx:
+                cli.cmd_init(args)
+        self.assertIn("Only feature-level stories are supported", str(ctx.exception))
+
 

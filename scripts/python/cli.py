@@ -207,14 +207,37 @@ def _get_github_user() -> str:
 
 def cmd_init(args: argparse.Namespace) -> None:
     source = _jira_source()
-    feature_key = args.feature
+    root_key = args.feature
 
-    if not source.validate_key(feature_key):
-        raise ValueError(f"Invalid JIRA key: {feature_key}")
+    if not source.validate_key(root_key):
+        raise ValueError(f"Invalid JIRA key: {root_key}")
 
-    console.print(f"[bold]Fetching {feature_key} from JIRA...[/bold]")
-    feature = source.fetch_item(feature_key)
+    console.print(f"[bold]Fetching {root_key} from JIRA...[/bold]")
+    root_item = source.fetch_item(root_key)
+    if root_item.item_type != "feature":
+        raise RuntimeError(
+            f"{root_key} is '{root_item.item_type}'. "
+            "Only feature-level stories are supported in agentic-lite. "
+            "Please initialize using a feature key."
+        )
 
+    initialized_feature_keys: list[str] = [root_item.key]
+    _init_feature(source, root_item, with_children=args.with_children)
+
+    branch_name = f"{root_key}-{_get_github_user()}"
+    try:
+        _git("checkout", "-b", branch_name, cwd=repo_root())
+        console.print(f"[green]Created branch:[/green] {branch_name}")
+    except Exception as exc:
+        console.print(f"[yellow]Branch not created: {exc}[/yellow]")
+
+    if initialized_feature_keys:
+        console.print(f"[green]Initialized feature(s):[/green] {', '.join(initialized_feature_keys)}")
+        console.print(f"Next: run `bin/agentic repos {initialized_feature_keys[0]}`")
+
+
+def _init_feature(source: Any, feature: Any, with_children: bool) -> None:
+    feature_key = feature.key
     feature_dir = _feature_dir(feature_key)
     _ensure_dir(feature_dir)
 
@@ -234,8 +257,8 @@ def cmd_init(args: argparse.Namespace) -> None:
     if not (feature_dir / "config.yaml").exists():
         write_yaml(feature_dir / "config.yaml", {"repos": []})
 
-    if args.with_children:
-        console.print("[bold]Fetching child tasks...[/bold]")
+    if with_children:
+        console.print(f"[bold]Fetching child tasks for {feature_key}...[/bold]")
         children = source.fetch_children(feature_key)
         task_keys = []
         for child in children:
@@ -243,16 +266,6 @@ def cmd_init(args: argparse.Namespace) -> None:
             _create_task(feature_key, child)
         feature_manifest["tasks"] = task_keys
         write_yaml(feature_dir / "manifest.yaml", feature_manifest)
-
-    branch_name = f"{feature_key}-{_get_github_user()}"
-    try:
-        _git("checkout", "-b", branch_name, cwd=repo_root())
-        console.print(f"[green]Created branch:[/green] {branch_name}")
-    except Exception as exc:
-        console.print(f"[yellow]Branch not created: {exc}[/yellow]")
-
-    console.print(f"[green]Initialized feature:[/green] {feature_key}")
-    console.print(f"Next: run `bin/agentic repos {feature_key}`")
 
 
 def _create_task(feature_key: str, task: Any) -> None:

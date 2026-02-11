@@ -41,7 +41,7 @@ class JiraSource:
         parent = fields.get("parent", {})
         parent_key = parent.get("key") if parent else None
 
-        item_type = self._detect_item_type(fields)
+        item_type = self.detect_item_type(key)
         source_url = f"{self.base_url}/browse/{key}"
 
         return WorkItem(
@@ -103,6 +103,42 @@ class JiraSource:
             console.print(f"[dim]JQL API error: {exc}[/dim]")
             return []
 
+    def detect_item_type(self, key: str) -> str:
+        issue = self.client.issue(key)
+        fields = issue.get("fields", {})
+
+        issue_type = fields.get("issuetype", {}).get("name", "").lower()
+        if "epic" in issue_type:
+            return "epic"
+        if "feature" in issue_type:
+            return "feature"
+
+        hierarchy_level = fields.get("hierarchyLevel")
+        if hierarchy_level:
+            level_name = hierarchy_level.get("name", "").lower()
+            if "epic" in level_name:
+                return "epic"
+            if "feature" in level_name:
+                return "feature"
+            if "task" in level_name or "story" in level_name:
+                return "task"
+
+        parent = fields.get("parent")
+        has_children = self._has_children(key)
+
+        if has_children:
+            return "feature"
+        if parent:
+            return "task"
+
+        if fields.get("issuetype", {}).get("subtask"):
+            return "task"
+
+        epic_link = fields.get("epicLink") or fields.get("customfield_10014")
+        if epic_link:
+            return "task"
+        return "task"
+
     def _detect_item_type(self, fields: dict[str, Any]) -> str:
         issue_type = fields.get("issuetype", {}).get("name", "").lower()
         if "epic" in issue_type:
@@ -112,6 +148,23 @@ class JiraSource:
         if "story" in issue_type or "task" in issue_type or "bug" in issue_type:
             return "task"
         return "task"
+
+    def _has_children(self, key: str) -> bool:
+        try:
+            issue = self.client.issue(key)
+            subtasks = issue.get("fields", {}).get("subtasks", [])
+            if subtasks:
+                return True
+            issues = self._search_jql(f'parent = "{key}"', max_results=1)
+            if issues:
+                return True
+            issues = self._search_jql(f'"Parent Link" = "{key}"', max_results=1)
+            if issues:
+                return True
+            issues = self._search_jql(f'"Epic Link" = "{key}"', max_results=1)
+            return len(issues) > 0
+        except Exception:
+            return False
 
     def _extract_text_from_adf(self, adf: dict) -> str:
         text_parts: list[str] = []

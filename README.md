@@ -14,7 +14,7 @@ If startup messages were missed, follow these steps:
 cp -n config/credentials.env.example config/credentials.env
 # then edit config/credentials.env
 
-# 2) Initialize feature + child tasks
+# 2) Initialize from a feature key
 bin/agentic init <FEATURE-ID> -c
 
 # 3) Set repos for the feature
@@ -43,6 +43,10 @@ cp config/credentials.env.example config/credentials.env
 ```bash
 bin/agentic init FEAT-123 -c
 ```
+
+`init` is intentionally strict in agentic-lite:
+- Only **feature-level** keys are supported.
+- Epic keys and individual task keys are rejected to keep the flow simple.
 
 Creates:
 

@@ -15,10 +15,10 @@ if [[ -f "${REPO_ROOT}/config/credentials.env" ]]; then
 fi
 
 # Normalize GitHub token env var naming for different tools.
-if [[ -n "${GH_TOKEN:-}" && -z "${GITHUB_TOKEN:-}" ]]; then
+# If GH_TOKEN is set in credentials.env, it is the source of truth.
+if [[ -n "${GH_TOKEN:-}" ]]; then
   export GITHUB_TOKEN="${GH_TOKEN}"
-fi
-if [[ -n "${GITHUB_TOKEN:-}" && -z "${GH_TOKEN:-}" ]]; then
+elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
   export GH_TOKEN="${GITHUB_TOKEN}"
 fi
 

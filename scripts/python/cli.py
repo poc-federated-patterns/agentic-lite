@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import os
 import shutil
 import subprocess
@@ -214,9 +215,10 @@ def _gh(*args: str, cwd: Path | None = None) -> str:
 
 
 def _normalize_github_token_env() -> None:
-    if os.getenv("GH_TOKEN") and not os.getenv("GITHUB_TOKEN"):
+    # If GH_TOKEN is present from credentials.env, it takes precedence.
+    if os.getenv("GH_TOKEN"):
         os.environ["GITHUB_TOKEN"] = os.environ["GH_TOKEN"]
-    if os.getenv("GITHUB_TOKEN") and not os.getenv("GH_TOKEN"):
+    elif os.getenv("GITHUB_TOKEN"):
         os.environ["GH_TOKEN"] = os.environ["GITHUB_TOKEN"]
 
 
@@ -322,9 +324,10 @@ def _clone_repo(repo: str, repo_path: Path) -> str:
         token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
         try:
             if token:
+                basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
                 _git(
                     "-c",
-                    f"http.https://github.com/.extraheader=AUTHORIZATION: bearer {token}",
+                    f"http.https://github.com/.extraheader=AUTHORIZATION: basic {basic}",
                     "clone",
                     "--depth",
                     "1",
@@ -355,6 +358,44 @@ def _clone_repo(repo: str, repo_path: Path) -> str:
         "Run `gh auth status` and ensure token has repo access.\n"
         + "\n".join(attempts)
     )
+
+
+def _configure_repo_auth(repo_path: Path) -> None:
+    """Ensure git operations in this repo use the loaded GitHub token when available."""
+    token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+    if not token:
+        return
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    try:
+        # Disable credential helpers for this repo so token header is authoritative.
+        _git("config", "--local", "credential.helper", "", cwd=repo_path)
+    except Exception:
+        pass
+    try:
+        _git(
+            "config",
+            "--local",
+            "http.https://github.com/.extraheader",
+            f"AUTHORIZATION: basic {basic}",
+            cwd=repo_path,
+        )
+    except Exception:
+        # Non-fatal: clone may still work via gh/ssh credentials.
+        pass
+
+    # Optional local identity setup for convenience.
+    git_user_name = os.getenv("GIT_USER_NAME", "").strip()
+    git_user_email = os.getenv("GIT_USER_EMAIL", "").strip()
+    if git_user_name:
+        try:
+            _git("config", "--local", "user.name", git_user_name, cwd=repo_path)
+        except Exception:
+            pass
+    if git_user_email:
+        try:
+            _git("config", "--local", "user.email", git_user_email, cwd=repo_path)
+        except Exception:
+            pass
 
 
 def _prompt_list(prompt: str) -> list[str]:
@@ -603,6 +644,7 @@ def cmd_workspace_setup(args: argparse.Namespace) -> None:
                     # continue to clone below
                 else:
                     console.print(f"[dim]Repo exists: {repo_path}[/dim]")
+                    _configure_repo_auth(repo_path)
                     continue
             else:
                 # Recover from previously interrupted clone that left a non-git folder.
@@ -615,6 +657,7 @@ def cmd_workspace_setup(args: argparse.Namespace) -> None:
         try:
             method = _clone_repo(repo, repo_path)
             console.print(f"[green]Cloned {repo_name} via {method} into {repo_path}[/green]")
+            _configure_repo_auth(repo_path)
         except Exception as exc:
             failed.append(f"{repo_name}: {exc}")
             console.print(f"[red]Failed cloning {repo_name}[/red]")

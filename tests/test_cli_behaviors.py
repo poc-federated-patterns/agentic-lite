@@ -142,6 +142,24 @@ class TestCliBehaviors(TestCase):
             else:
                 os.environ["GITHUB_TOKEN"] = old_github
 
+    def test_normalize_github_token_env_prefers_gh_token(self):
+        old_gh = os.environ.get("GH_TOKEN")
+        old_github = os.environ.get("GITHUB_TOKEN")
+        try:
+            os.environ["GH_TOKEN"] = "preferred"
+            os.environ["GITHUB_TOKEN"] = "other"
+            cli._normalize_github_token_env()
+            self.assertEqual(os.environ.get("GITHUB_TOKEN"), "preferred")
+        finally:
+            if old_gh is None:
+                os.environ.pop("GH_TOKEN", None)
+            else:
+                os.environ["GH_TOKEN"] = old_gh
+            if old_github is None:
+                os.environ.pop("GITHUB_TOKEN", None)
+            else:
+                os.environ["GITHUB_TOKEN"] = old_github
+
     def test_clone_repo_prefers_gh_for_org_repo(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_path = Path(tmp_dir) / "foo"
@@ -230,5 +248,37 @@ class TestCliBehaviors(TestCase):
                     os.environ.pop("GITHUB_TOKEN", None)
                 else:
                     os.environ["GITHUB_TOKEN"] = old_github
+
+    def test_configure_repo_auth_sets_extraheader_and_identity(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = Path(tmp_dir)
+            old_gh = os.environ.get("GH_TOKEN")
+            old_name = os.environ.get("GIT_USER_NAME")
+            old_email = os.environ.get("GIT_USER_EMAIL")
+            try:
+                os.environ["GH_TOKEN"] = "ghp_testtoken"
+                os.environ["GIT_USER_NAME"] = "Test User"
+                os.environ["GIT_USER_EMAIL"] = "test@example.com"
+                with patch.object(cli, "_git", return_value="") as git_call:
+                    cli._configure_repo_auth(repo)
+                calls = [c.args for c in git_call.call_args_list]
+                header_calls = [args for args in calls if "http.https://github.com/.extraheader" in args]
+                self.assertTrue(len(header_calls) == 1)
+                self.assertIn("AUTHORIZATION: basic ", header_calls[0][-1])
+                self.assertTrue(any(("user.name" in args) for args in calls))
+                self.assertTrue(any(("user.email" in args) for args in calls))
+            finally:
+                if old_gh is None:
+                    os.environ.pop("GH_TOKEN", None)
+                else:
+                    os.environ["GH_TOKEN"] = old_gh
+                if old_name is None:
+                    os.environ.pop("GIT_USER_NAME", None)
+                else:
+                    os.environ["GIT_USER_NAME"] = old_name
+                if old_email is None:
+                    os.environ.pop("GIT_USER_EMAIL", None)
+                else:
+                    os.environ["GIT_USER_EMAIL"] = old_email
 
 

@@ -27,8 +27,8 @@ def generate_workspace(feature_key: str) -> Path:
     repo_names = [r.split("/")[-1] for r in repo_list]
     credentials_path = repo_root() / "config" / "credentials.env"
     token_normalize = (
-        'if [ -n "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ]; then export GITHUB_TOKEN="$GH_TOKEN"; fi; '
-        'if [ -n "${GITHUB_TOKEN:-}" ] && [ -z "${GH_TOKEN:-}" ]; then export GH_TOKEN="$GITHUB_TOKEN"; fi; '
+        'if [ -n "${GH_TOKEN:-}" ]; then export GITHUB_TOKEN="$GH_TOKEN"; '
+        'elif [ -n "${GITHUB_TOKEN:-}" ]; then export GH_TOKEN="$GITHUB_TOKEN"; fi; '
     )
     git_auth_setup = (
         'if command -v gh >/dev/null 2>&1; then gh auth setup-git >/dev/null 2>&1 || true; fi; '
@@ -110,6 +110,11 @@ def generate_workspace(feature_key: str) -> Path:
                         f'if [ -f "{credentials_path}" ]; then set -a; source "{credentials_path}"; set +a; fi; '
                         + token_normalize
                         + git_auth_setup
+                        + 'git config --local credential.helper "" >/dev/null 2>&1 || true; '
+                        + 'if [ -n "${GH_TOKEN:-}" ]; then auth_b64=$(printf "x-access-token:%s" "${GH_TOKEN}" | base64 | tr -d "\\n"); '
+                        + 'git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ${auth_b64}" >/dev/null 2>&1 || true; fi; '
+                        + 'if [ -n "${GIT_USER_NAME:-}" ]; then git config --local user.name "${GIT_USER_NAME}" >/dev/null 2>&1 || true; fi; '
+                        + 'if [ -n "${GIT_USER_EMAIL:-}" ]; then git config --local user.email "${GIT_USER_EMAIL}" >/dev/null 2>&1 || true; fi; '
                         + token_debug
                         + "; "
                         + 'if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; '

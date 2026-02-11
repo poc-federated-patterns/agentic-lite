@@ -2,12 +2,7 @@
 
 ### Current Issue
 
-- No open issues captured.
-
-- I like how the agentic-lite opens with the message and instructions for the TASK_ID and the icon! However, the Codespaces .devcontainer/on-attach.sh is still opening with the initial global message, that is redundant. This means we have two terminals for the agentic-line, and with two different messages. I only need one terminal and with the task-related messages (i.e. no need for the current on-attach ... or maybe we can do an if condition on that one?)
-
-- I currently do not have the tokens activated in the workspace terminals of the repos... therefore I am not able to push changes. We need to activate the token from the credentials.env please
-
+- The README seems wrong on core commands, as its mixing CLI with the Skills. The skills are for appending to the decision log, to creating the pr narrative in desired template (given the already built pr context)..... I don't think we need the agentic-pr-create skill as this is managed through the CLI? ... please analyse and clean up the README and optimize the skills / CLI accordingly.
 
 ### Recently Completed
 

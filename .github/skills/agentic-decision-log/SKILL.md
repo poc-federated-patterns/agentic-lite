@@ -3,6 +3,10 @@ name: agentic-decision-log
 description: Append structured context notes to a task research log.
 ---
 
+Scope:
+- This skill writes context notes only.
+- It does not run CLI workflow commands.
+
 You are working in this repo. Append a context log entry to:
 
 - Target file: `features/<FEATURE>/<TASK>/research-notes/gained-context.md`

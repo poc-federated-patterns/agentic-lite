@@ -3,6 +3,10 @@ name: agentic-pr-narrative
 description: Build a PR narrative from context and diffs.
 ---
 
+Scope:
+- This skill writes/updates `pr/description.md` only.
+- PR creation and submission are handled by CLI (`bin/agentic pr submit`).
+
 Read the following inputs:
 
 - `features/<FEATURE>/<TASK>/pr/context.md`

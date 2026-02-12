@@ -1,91 +1,86 @@
-# Agentic-Lite (Demo)
+# Agentic-Lite
 
-Lightweight workspace template to operationalize shared mental models for a team.
-This repo provides a thin-slice workflow: fetch a feature from JIRA, choose repos,
-generate a VS Code workspace, capture context, and prepare PRs.
+Lightweight developer workspace to operationalize shared context around one feature and its tasks.
 
-## Quick Start (1 minute)
-
-If you are in Codespaces, setup should already be done by the devcontainer.
-If startup messages were missed, run:
+## Quick Start
 
 ```bash
-# 1) Validate credentials (or edit existing file)
+# 1) Configure credentials
 cp config/credentials.env.example config/credentials.env
-# 2) Initialize feature (child tasks fetched by default)
+
+# 2) Initialize from JIRA feature
 bin/agentic init <FEATURE-ID>
 
-# 3) Set feature repos (active feature is used)
+# 3) Configure repos for this feature
 bin/agentic set-repos
 
-# 4) Create/open workspace
+# 4) Clone repos + generate workspace
 bin/agentic set-workspace
 ```
 
-Flow rules:
-- `init` is feature-only; epic/task IDs are rejected in agentic-lite.
-- Active feature context is saved after `init`, so `set-repos` and `set-workspace` need no feature ID.
-- Use `--no-children` if you need to skip child task fetch.
+Notes:
+- `init` is feature-only (epics/tasks are intentionally rejected).
+- Child tasks are fetched by default (`--no-children` to skip).
+- Active feature context is persisted, so `set-repos` and `set-workspace` normally need no feature ID.
 
-## Workflow Diagram
+## Workflow (Simple)
 
 ```mermaid
-flowchart TD
-  initFeature[InitFeature] --> setRepos[SetRepos]
-  setRepos --> setWorkspace[SetWorkspace]
-  setWorkspace --> openWorkspace[OpenWorkspace]
-  openWorkspace --> taskWork[TaskWorkBranches]
-  taskWork --> captureDiffs[DiffTask]
-  taskWork --> addContext[LogTaskContext]
-  captureDiffs --> buildContext[PRContext]
-  addContext --> buildContext
-  buildContext --> buildPR[PRBuild]
-  buildPR --> taskRepos[SetTaskRepos]
-  taskRepos --> submitPRs[PRSubmit]
+flowchart LR
+  subgraph cliFlow [CLI Flow]
+    init[agentic init FEATURE] --> repos[agentic set-repos]
+    repos --> workspace[agentic set-workspace]
+    workspace --> diff[agentic diff TASK]
+    diff --> context[agentic pr context TASK]
+    submit[agentic pr submit TASK]
+  end
+  subgraph skillsFlow [Skills Flow]
+    diagram[agentic-diagram-generator]
+    decision[agentic-decision-log]
+    narrative[agentic-pr-narrative]
+  end
+  context --> narrative
+  diff --> narrative
+  narrative --> submit
+  decision --> context
 ```
 
-## Core Commands
+## Responsibilities
 
-- `bin/agentic init <FEATURE-ID>`: initialize a feature + child tasks
-- `bin/agentic set-repos`: configure repos for active feature
-- `bin/agentic set-workspace`: clone missing repos + generate `<FEATURE>.code-workspace`
-- `bin/agentic diff <TASK-ID>`: capture diffs for repos linked to that task
-- `bin/agentic log <TASK-ID>`: append context in `research-notes/gained-context.md`
-- `bin/agentic pr context <TASK-ID>`: build structured context bundle
-- `bin/agentic pr build <TASK-ID>`: render PR description markdown
-- `bin/agentic set-task-repos <TASK-ID>`: choose main/supporting repos
-- `bin/agentic pr submit <TASK-ID>`: create main + supporting PRs
+- CLI commands handle deterministic operations (setup, cloning, diff/context generation, PR submission).
+- Skills assist with writing and documentation artifacts (decision log, PR narrative, architecture diagram).
+- PR creation/submission is CLI-owned (`agentic pr submit`), not skill-owned.
 
-## Using Skills
+## Core CLI Commands
 
-This repo includes lightweight skills under `.github/skills/*` that Copilot can use to automate common tasks.
+- `bin/agentic init <FEATURE-ID>`: initialize feature + child tasks.
+- `bin/agentic set-repos`: configure feature repos.
+- `bin/agentic set-workspace`: clone missing repos and generate workspace file.
+- `bin/agentic diff <TASK-ID>`: capture task-relevant diffs.
+- `bin/agentic pr context <TASK-ID>`: build structured PR context bundle.
+- `bin/agentic set-task-repos <TASK-ID>`: choose main/supporting repos for a task.
+- `bin/agentic pr submit <TASK-ID>`: create main + supporting PRs.
 
-- Location: `.github/skills/<skill-name>/SKILL.md`
-- What they do: Each skill describes a focused workflow (e.g., append a decision log, build a PR narrative, create PRs).
+## Skills
 
-How to use with GitHub Copilot Chat in VS Code:
+Skills live under `.github/skills/`:
 
-- Open Copilot Chat and ask to use a skill by name, providing the required inputs.
-- Examples:
-  - "Use the skill `agentic-decision-log` for TASK-456: Context=..., Decision=..., Alternatives=..., Consequences=..., Links=..."
-  - "Run `agentic-pr-narrative` for FEAT-123/TASK-456 and update `pr/description.md`."
-  - "Use `agentic-pr-create` for FEAT-123/TASK-456 to create main + supporting PRs."
+- `agentic-decision-log`: append structured context/decision notes.
+- `agentic-pr-narrative`: generate/update PR description from context + diffs.
+- `agentic-diagram-generator`: generate architecture diagram markdown from template.
 
-Notes:
-- Skills operate on workspace files; ensure feature/task folders exist from `bin/agentic init`.
-- You can open the SKILL.md to see exact inputs and outputs each skill expects.
-
-## Environment Variables
+## Environment
 
 Set in `config/credentials.env`:
 
-```
+```bash
 ATLASSIAN_BASE_URL=https://your-domain.atlassian.net
 ATLASSIAN_EMAIL=you@example.com
 ATLASSIAN_API_TOKEN=your_token
+GH_TOKEN=your_pat_token
 ```
 
-## Setup (manual, non-Codespaces)
+## Manual Setup (non-Codespaces)
 
 ```bash
 python3 -m venv .venv
@@ -94,12 +89,10 @@ pip install -r scripts/python/requirements.txt
 cp config/credentials.env.example config/credentials.env
 ```
 
-## Notes
+## Practical Notes
 
-- Repos are cloned into a sibling `../repos` folder (relative to this repo).
-- Branching for code repos is manual. Branches should be prefixed with the task ID.
-- The PR template is in `.github/PULL_REQUEST_TEMPLATE.md`.
-- The generated workspace auto-opens one terminal for `agentic-lite` and one per repo; each loads credentials and activates `.venv` if present.
-- Repo setup is run during `set-workspace` (not automatically on workspace open) to avoid non-interactive auth hangs.
+- Repos are cloned in sibling folder `../repos`.
+- Branch naming is manual; prefix branches with task ID.
+- PR template: `.github/PULL_REQUEST_TEMPLATE.md`.
 
 

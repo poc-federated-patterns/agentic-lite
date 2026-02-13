@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import yaml
 
 try:
     from .util import features_root, read_yaml
@@ -16,8 +17,12 @@ def build_context(feature_key: str, task_key: str) -> Path:
     feature_dir = features_root() / feature_key
     task_dir = feature_dir / task_key
 
-    feature_manifest = read_yaml(feature_dir / "manifest.yaml")
-    task_manifest = read_yaml(task_dir / "manifest.yaml")
+    feature_manifest_path = feature_dir / "manifest.yaml"
+    task_manifest_path = task_dir / "manifest.yaml"
+
+    feature_manifest = read_yaml(feature_manifest_path)
+    task_manifest = read_yaml(task_manifest_path)
+    task_manifest_raw = task_manifest_path.read_text() if task_manifest_path.exists() else ""
 
     gained_context_path = task_dir / "research-notes" / "gained-context.md"
     gained_context_text = gained_context_path.read_text() if gained_context_path.exists() else ""
@@ -46,9 +51,23 @@ def build_context(feature_key: str, task_key: str) -> Path:
     lines.append(f"- Title: {task_manifest.get('title', '')}")
     lines.append(f"- Status: {task_manifest.get('status', '')}")
     lines.append("")
-    if task_manifest.get("acceptance_criteria"):
-        lines.append("## Acceptance Criteria")
-        lines.append(task_manifest.get("acceptance_criteria", ""))
+
+    lines.append("## Instructions")
+    lines.append(
+        "- **Acceptance criteria must be extracted from the ticket context** (see `Ticket Manifest (raw)` below)."
+    )
+    lines.append("- Do not invent acceptance criteria; if missing, explicitly state that it is missing.")
+    lines.append("")
+
+    if task_manifest_raw.strip():
+        lines.append("## Ticket Manifest (raw)")
+        lines.append("```yaml")
+        # Normalize to valid YAML for LLM consumption (ensures consistent formatting even if source has odd spacing)
+        try:
+            lines.append(yaml.safe_dump(task_manifest, sort_keys=False).rstrip())
+        except Exception:
+            lines.append(task_manifest_raw.rstrip())
+        lines.append("```")
         lines.append("")
 
     if gained_context_text.strip():

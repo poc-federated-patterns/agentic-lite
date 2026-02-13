@@ -74,6 +74,62 @@ class TestCliBehaviors(TestCase):
             config = yaml.safe_load((task_dir / "config.yaml").read_text())
             self.assertEqual(config["main_repo"], "org/foo")
 
+    def test_create_pr_when_already_exists_offers_update_and_returns_existing_url(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            repos = root / "repos"
+            (repos / "foo").mkdir(parents=True)
+
+            # Simulate interactive environment + gh error containing PR URL
+            gh_err = (
+                'a pull request for branch "TASK-1-impl" into branch "main" already exists:\n'
+                "https://github.com/org/foo/pull/123"
+            )
+            with patch.object(cli, "repos_root", return_value=repos), patch.object(
+                cli, "_default_branch", return_value="main"
+            ), patch.object(cli, "_local_branches", return_value=["TASK-1-impl"]), patch.object(
+                cli, "_head_branch", return_value="TASK-1-impl"
+            ), patch.object(cli, "_gh", side_effect=RuntimeError(gh_err)), patch.object(
+                cli, "_is_interactive", return_value=True
+            ), patch.object(cli, "_prompt_yes_no", return_value=True), patch.object(
+                cli, "_update_pr_description"
+            ) as upd:
+                url = cli._create_pr("org/foo", "t", Path("/tmp/body.md"), "TASK-1")
+            self.assertEqual(url, "https://github.com/org/foo/pull/123")
+            self.assertTrue(upd.called)
+
+    def test_pr_submit_runs_task_repos_when_not_set_and_interactive(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            features = root / "features"
+            repos = root / "repos"
+            task_dir = features / "FEAT-1" / "TASK-1"
+            task_dir.mkdir(parents=True)
+            (task_dir / "pr").mkdir(parents=True)
+            (task_dir / "pr" / "description.md").write_text("body")
+            (task_dir / "config.yaml").write_text(yaml.safe_dump({"repos": [], "main_repo": ""}))
+            (task_dir / "manifest.yaml").write_text(yaml.safe_dump({"task_key": "TASK-1", "title": "My task"}))
+
+            args = Namespace(feature_or_task="TASK-1", task=None)
+            with patch.object(cli, "features_root", return_value=features), patch.object(
+                cli, "repos_root", return_value=repos
+            ), patch.object(cli, "_find_feature_for_task", return_value="FEAT-1"), patch.object(
+                cli, "_is_interactive", return_value=True
+            ), patch.object(cli, "cmd_task_repos") as task_repos, patch.object(
+                cli, "_create_pr", return_value="https://example/pr/1"
+            ) as create_pr:
+                # Simulate task-repos updating config.yaml
+                def _write_config(_ns):
+                    (task_dir / "config.yaml").write_text(
+                        yaml.safe_dump({"repos": ["org/foo"], "main_repo": "org/foo"})
+                    )
+
+                task_repos.side_effect = _write_config
+                cli.cmd_pr_submit(args)
+
+            self.assertTrue(task_repos.called)
+            self.assertTrue(create_pr.called)
+
     def test_init_rejects_epic(self):
         root_item = type("Item", (), {"key": "EPIC-1", "item_type": "epic"})()
         source = type(

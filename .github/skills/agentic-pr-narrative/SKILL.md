@@ -23,5 +23,5 @@ Requirements:
 - Summarize key changes and risks.
 - Include testing evidence or note if not run.
 - Keep it concise and actionable for reviewers.
-
+- Do not reference the internal files (e.g. context.md or diffs) in the narrative; synthesize the information into a standalone description.
 

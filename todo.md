@@ -2,14 +2,17 @@
 
 ### Current Issue
 
-- The README seems wrong on core commands, as its mixing CLI with the Skills. The skills are for appending to the decision log, to creating the pr narrative in desired template (given the already built pr context)..... I don't think we need the agentic-pr-create skill as this is managed through the CLI? ... please analyse and clean up the README and optimize the skills / CLI accordingly.
+- (Add new items here.)
+
 
 ### Recently Completed
 
-- Debug logs moved behind debug mode (`--debug` or `AGENTIC_DEBUG=1`).
-- Removed redundant global Codespaces attach message (kept workspace terminal guidance only).
-- Repo terminals now run `gh auth setup-git` after loading credentials, to improve push auth behavior.
 
+- 2026-02-13
+  - Clarified README: CLI vs Skills responsibilities; added `pr update-description`.
+  - Improved `set-task-repos` instructions: main vs supporting repos; default supporting repos = all non-main (0 = none).
+  - Added `bin/agentic pr update-description <TASK>` to replace an existing PR body.
+  - `pr submit`: when PR already exists, the CLI offers to update the description instead of crashing.
 
 ### Reminders
 

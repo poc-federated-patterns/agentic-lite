@@ -28,8 +28,7 @@ Notes:
 ```mermaid
 flowchart LR
   subgraph cliFlow [CLI Flow]
-    init[agentic init FEATURE] --> repos[agentic set-repos]
-    repos --> workspace[agentic set-workspace]
+    init[agentic init FEATURE] --> workspace[agentic set-repos]
     workspace --> diff[agentic diff TASK]
     diff --> context[agentic pr context TASK]
     submit[agentic pr submit TASK]
@@ -40,7 +39,6 @@ flowchart LR
     narrative[agentic-pr-narrative]
   end
   context --> narrative
-  diff --> narrative
   narrative --> submit
   decision --> context
 ```

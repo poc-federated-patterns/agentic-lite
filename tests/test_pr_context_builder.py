@@ -34,6 +34,8 @@ class TestPrContextBuilder(TestCase):
             self.assertTrue(output.exists())
             content = output.read_text()
             self.assertIn("PR Context for TASK-1", content)
+            self.assertIn("Ticket Manifest (raw)", content)
+            self.assertIn("Acceptance criteria must be extracted", content)
             self.assertIn("Decision entry", content)
             self.assertIn("repo.patch", content)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,45 @@ except ImportError:
     from workspace_generator import generate_workspace
 
 console = Console()
+
+
+def _is_interactive() -> bool:
+    try:
+        return bool(sys.stdin.isatty() and sys.stdout.isatty())
+    except Exception:
+        return False
+
+
+def _prompt_yes_no(prompt: str, default_yes: bool = True) -> bool:
+    if not _is_interactive():
+        return default_yes
+    suffix = " [Y/n]: " if default_yes else " [y/N]: "
+    raw = input(prompt + suffix).strip().lower()
+    if not raw:
+        return default_yes
+    return raw in {"y", "yes"}
+
+
+def _extract_pr_url(text: str) -> str | None:
+    m = re.search(r"https://github\.com/\S+/pull/\d+", text or "")
+    return m.group(0) if m else None
+
+
+def _parse_select_many(options: list[str], raw: str) -> list[str]:
+    selected: list[str] = []
+    if not raw:
+        return selected
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            idx = int(token)
+        except ValueError:
+            continue
+        if 1 <= idx <= len(options):
+            selected.append(options[idx - 1])
+    return selected
 
 
 def _state_path() -> Path:
@@ -570,6 +610,10 @@ def cmd_task_repos(args: argparse.Namespace) -> None:
     feature_repos = read_yaml(_feature_dir(feature_key) / "config.yaml").get("repos", [])
     if not feature_repos:
         console.print("[yellow]No feature repos configured; falling back to free text.[/yellow]")
+        console.print(
+            "[dim]Main repo = primary repo for this task (used for PR description). "
+            "Supporting repos = any additional repos impacted.[/dim]"
+        )
         repos = _prompt_list("Repos for this task (comma-separated, org/repo): ")
         if repos:
             config["repos"] = repos
@@ -581,12 +625,20 @@ def cmd_task_repos(args: argparse.Namespace) -> None:
         return
 
     console.print("[bold]Select the main repo for this task:[/bold]")
+    console.print("[dim]Main repo = where the PR description will live.[/dim]")
     main_repo = _prompt_select_one(feature_repos, "Main repo number [1]: ")
     supporting_candidates = [r for r in feature_repos if r != main_repo]
-    console.print("[bold]Select supporting repos (comma-separated numbers, empty for none):[/bold]")
+    console.print("[bold]Select supporting repos (comma-separated numbers):[/bold]")
+    console.print("[dim]Default is ALL non-main repos. Enter 0 for none.[/dim]")
     for i, item in enumerate(supporting_candidates, start=1):
         console.print(f"  {i}. {item}")
-    supporting = _prompt_select_many(supporting_candidates, "Supporting repos: ")
+    raw = input("Supporting repos [all]: ").strip()
+    if raw in {"0", "none", "no"}:
+        supporting = []
+    elif not raw:
+        supporting = supporting_candidates
+    else:
+        supporting = _parse_select_many(supporting_candidates, raw)
 
     config["main_repo"] = main_repo
     config["repos"] = [main_repo, *[r for r in supporting if r != main_repo]]
@@ -828,8 +880,17 @@ def cmd_pr_submit(args: argparse.Namespace) -> None:
     repos = task_config.get("repos", [])
     main_repo = task_config.get("main_repo", "")
 
+    # If repos haven't been set for the task yet, run the same selection flow as `set-task-repos`.
+    if not repos and _is_interactive():
+        cmd_task_repos(argparse.Namespace(feature_or_task=args.feature_or_task, task=args.task))
+        task_config = read_yaml(task_config_path)
+        repos = task_config.get("repos", []) or []
+        main_repo = task_config.get("main_repo", "") or ""
+
+    # Non-interactive fallback: use feature-level repos if present (but cannot prompt for main/supporting).
     if not repos:
         repos = _resolve_repos_for_task(feature_key, task_key, None)
+
     if not repos:
         console.print("[yellow]No repos configured for this task.[/yellow]")
         console.print("Run: bin/agentic task-repos <TASK>")
@@ -859,6 +920,95 @@ def cmd_pr_submit(args: argparse.Namespace) -> None:
         _create_supporting_pr(repo, title, main_url, task_key)
 
 
+def cmd_pr_update_description(args: argparse.Namespace) -> None:
+    feature_key, task_key = _resolve_feature_task(args.feature_or_task, args.task)
+    task_dir = _task_dir(feature_key, task_key)
+
+    task_config_path = task_dir / "config.yaml"
+    task_config = read_yaml(task_config_path)
+    repos = task_config.get("repos", [])
+    main_repo = task_config.get("main_repo", "")
+
+    if not repos and _is_interactive():
+        cmd_task_repos(argparse.Namespace(feature_or_task=args.feature_or_task, task=args.task))
+        task_config = read_yaml(task_config_path)
+        repos = task_config.get("repos", []) or []
+        main_repo = task_config.get("main_repo", "") or ""
+
+    if not repos:
+        repos = _resolve_repos_for_task(feature_key, task_key, None)
+    if not repos:
+        console.print("[yellow]No repos configured for this task.[/yellow]")
+        console.print("Run: bin/agentic task-repos <TASK>")
+        return
+
+    if not main_repo:
+        if len(repos) == 1:
+            main_repo = repos[0]
+        else:
+            console.print("[bold]Select main repo to update PR description:[/bold]")
+            main_repo = _prompt_select_one(repos, "Main repo number [1]: ")
+        task_config["main_repo"] = main_repo
+        task_config["repos"] = repos
+        write_yaml(task_config_path, task_config)
+
+    description_path = task_dir / "pr" / "description.md"
+    if not description_path.exists():
+        cmd_pr_build(args)
+
+    repo_name = main_repo.split("/")[-1]
+    repo_path = repos_root() / repo_name
+    base_branch = _default_branch(repo_path)
+    head_branch = next((b for b in _local_branches(repo_path) if b.startswith(task_key)), "") or _head_branch(repo_path)
+    if not head_branch or not head_branch.startswith(task_key):
+        raise RuntimeError(f"{repo_name}: no local branch starting with {task_key}")
+
+    pr_url = _find_existing_pr_url(main_repo, base_branch, head_branch)
+    if not pr_url:
+        raise RuntimeError(
+            f"No existing PR found for {main_repo} ({base_branch} <- {head_branch}). "
+            f"Create it first with: bin/agentic pr submit {task_key}"
+        )
+
+    _update_pr_description(main_repo, pr_url, description_path)
+    console.print(f"[green]Updated PR description:[/green] {pr_url}")
+
+
+def _find_existing_pr_url(repo: str, base_branch: str, head_branch: str) -> str | None:
+    try:
+        out = _gh(
+            "pr",
+            "list",
+            "--repo",
+            repo,
+            "--base",
+            base_branch,
+            "--head",
+            head_branch,
+            "--json",
+            "url",
+            "--limit",
+            "1",
+            "--jq",
+            ".[0].url",
+        ).strip()
+        return out or None
+    except Exception:
+        return None
+
+
+def _update_pr_description(repo: str, pr_url: str, body_path: Path) -> None:
+    _gh(
+        "pr",
+        "edit",
+        "--repo",
+        repo,
+        pr_url,
+        "--body-file",
+        str(body_path),
+    )
+
+
 def _create_pr(repo: str, title: str, body_path: Path, task_key: str) -> str:
     repo_name = repo.split("/")[-1]
     repo_path = repos_root() / repo_name
@@ -868,20 +1018,37 @@ def _create_pr(repo: str, title: str, body_path: Path, task_key: str) -> str:
         raise RuntimeError(f"{repo_name}: no local branch starting with {task_key}")
 
     console.print(f"[bold]Creating PR for {repo}...[/bold]")
-    url = _gh(
-        "pr",
-        "create",
-        "--repo",
-        repo,
-        "--base",
-        base_branch,
-        "--head",
-        head_branch,
-        "--title",
-        title,
-        "--body-file",
-        str(body_path),
-    )
+    try:
+        url = _gh(
+            "pr",
+            "create",
+            "--repo",
+            repo,
+            "--base",
+            base_branch,
+            "--head",
+            head_branch,
+            "--title",
+            title,
+            "--body-file",
+            str(body_path),
+        )
+    except RuntimeError as exc:
+        msg = str(exc)
+        existing_url = _extract_pr_url(msg) or _find_existing_pr_url(repo, base_branch, head_branch)
+        if existing_url:
+            console.print(f"[yellow]PR already exists:[/yellow] {existing_url}")
+            if _is_interactive():
+                if _prompt_yes_no(f"Update existing PR description from '{body_path}'?", default_yes=True):
+                    _update_pr_description(repo, existing_url, body_path)
+                    console.print(f"[green]Updated PR description:[/green] {existing_url}")
+            else:
+                raise RuntimeError(
+                    f"{msg}\n\nPR exists: {existing_url}\n"
+                    f"Run: bin/agentic pr update-description {task_key}"
+                ) from exc
+            return existing_url
+        raise
     final_url = url.strip().splitlines()[-1]
     console.print(f"[green]Created PR:[/green] {final_url}")
     return final_url
@@ -898,20 +1065,27 @@ def _create_supporting_pr(repo: str, title: str, main_url: str, task_key: str) -
     body = f"Supporting PR for {task_key}. Main PR: {main_url}\n"
 
     console.print(f"[bold]Creating supporting PR for {repo}...[/bold]")
-    _gh(
-        "pr",
-        "create",
-        "--repo",
-        repo,
-        "--base",
-        base_branch,
-        "--head",
-        head_branch,
-        "--title",
-        title,
-        "--body",
-        body,
-    )
+    try:
+        _gh(
+            "pr",
+            "create",
+            "--repo",
+            repo,
+            "--base",
+            base_branch,
+            "--head",
+            head_branch,
+            "--title",
+            title,
+            "--body",
+            body,
+        )
+    except RuntimeError as exc:
+        existing_url = _extract_pr_url(str(exc)) or _find_existing_pr_url(repo, base_branch, head_branch)
+        if existing_url:
+            console.print(f"[yellow]Supporting PR already exists:[/yellow] {existing_url}")
+            return
+        raise
 
 
 def main() -> None:
@@ -973,6 +1147,11 @@ def main() -> None:
     pr_submit.add_argument("feature_or_task")
     pr_submit.add_argument("task", nargs="?")
     pr_submit.set_defaults(func=cmd_pr_submit)
+
+    pr_update_desc = pr_sub.add_parser("update-description", aliases=["update-desc", "update-body"])
+    pr_update_desc.add_argument("feature_or_task")
+    pr_update_desc.add_argument("task", nargs="?")
+    pr_update_desc.set_defaults(func=cmd_pr_update_description)
 
     args = parser.parse_args()
     args.func(args)
